@@ -1,0 +1,42 @@
+[project]
+name = "hyperclass"
+version = "0.0.1"
+description = "Build interactive web applications as Python class hierarchies."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Grant Jenks" },
+]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["html", "htmx", "css", "wsgi", "web"]
+urls.Homepage = "https://github.com/grantjenks/python-hyperclass"
+urls."Issue Tracker" = "https://github.com/grantjenks/python-hyperclass/issues"
+urls."Source Code" = "https://github.com/grantjenks/python-hyperclass"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "nox>=2024.4.15",
+]
+
+[tool.setuptools.packages.find]
+include = ["hyperclass*"]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"

@@ -1,0 +1,12 @@
+__pycache__/
+*.py[codz]
+*.so
+build/
+dist/
+*.egg-info/
+.nox/
+.pytest_cache/
+.coverage
+.venv/
+.ruff_cache/
+.pypirc
