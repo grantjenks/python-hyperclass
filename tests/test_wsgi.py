@@ -5,6 +5,7 @@ from wsgiref.util import setup_testing_defaults
 
 from hyperclass import (
     App,
+    Values,
     button,
     closest,
     div,
@@ -13,6 +14,7 @@ from hyperclass import (
     hidden,
     hx,
     input,
+    name,
     outer_morph,
     output,
     patch,
@@ -266,3 +268,11 @@ def test_dataclass_binding_uses_defaults_and_reports_bad_values():
     )
     assert captured["status"] == "400 Bad Request"
     assert payload == "invalid form value for priority: 'high'"
+
+
+def test_values_accept_first_class_form_names():
+    values = Values({"search_query": ["python", "wsgi"], "page": ["3"]})
+    assert values[name.search_query] == "wsgi"
+    assert values.get(name.search_query) == "wsgi"
+    assert values.getlist(name.search_query) == ["python", "wsgi"]
+    assert values.int(name.page) == 3

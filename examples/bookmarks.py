@@ -32,6 +32,7 @@ from hyperclass import (
     label,
     main,
     media,
+    name,
     outer_morph,
     p,
     patch,
@@ -249,7 +250,18 @@ class text_field(input):
     focus = css(outline="2px solid #8b5cf6", outline_offset="1px")
 
 
+class url_field(text_field):
+    type = "url"
+    name = name.url
+    required = True
+
+
+class title_field(text_field):
+    name = name.title
+
+
 class primary_button(button):
+    type = "submit"
     style = css(
         align_self="end",
         padding=".72rem 1rem",
@@ -296,7 +308,15 @@ class search_form(form):
 
 
 class search_field(text_field):
-    ...
+    type = "search"
+    name = name.q
+    placeholder = "Search bookmarks"
+    aria_label = "Search bookmarks"
+
+
+class filter_field(input):
+    type = "hidden"
+    name = name.filter
 
 
 class filters(div):
@@ -367,8 +387,6 @@ class bookmark_card(article):
                 bookmark_link(
                     bookmark.title,
                     href=bookmark.url,
-                    target="_blank",
-                    rel="noreferrer",
                 )
             ),
             bookmark_url(bookmark.url),
@@ -376,7 +394,6 @@ class bookmark_card(article):
         yield card_actions(
             action_button(
                 "Mark unread" if bookmark.is_read else "Mark read",
-                type="button",
                 hx=hx.patch(
                     bookmarks.toggle,
                     bookmark_id=bookmark.id,
@@ -387,7 +404,6 @@ class bookmark_card(article):
             ),
             action_button(
                 "Edit",
-                type="button",
                 hx=hx.get(
                     bookmarks.edit,
                     bookmark_id=bookmark.id,
@@ -397,7 +413,6 @@ class bookmark_card(article):
             ),
             delete_button(
                 "Delete",
-                type="button",
                 hx=hx.delete(
                     bookmarks.delete,
                     bookmark_id=bookmark.id,
@@ -419,6 +434,8 @@ class bookmark_title(h2):
 
 
 class bookmark_link(a):
+    target = "_blank"
+    rel = "noreferrer"
     style = css(color="#2e1065", text_decoration="none")
     hover = css(text_decoration="underline")
     focus_visible = css(outline="2px solid #8b5cf6", outline_offset="2px")
@@ -438,6 +455,7 @@ class card_actions(aside):
 
 
 class action_button(button):
+    type = "button"
     style = css(
         min_height=2.5 * rem,
         padding=".5rem .7rem",
@@ -533,13 +551,9 @@ def results_view(store: BookmarkStore, state: str = "all", query: str = ""):
         bookmark_toolbar(
             search_form(
                 search_field(
-                    name="q",
-                    type="search",
                     value=query,
-                    placeholder="Search bookmarks",
-                    aria_label="Search bookmarks",
                 ),
-                input(type="hidden", name="filter", value=state),
+                filter_field(value=state),
                 hx=hx.get(
                     bookmarks.listing,
                     target=id.bookmark_results,
@@ -550,18 +564,18 @@ def results_view(store: BookmarkStore, state: str = "all", query: str = ""):
             filters(
                 *(
                     filter_link(
-                        name.title(),
+                        state_name.title(),
                         href=bookmarks.listing.url(
-                            query={**query_values, "filter": name}
+                            query={**query_values, "filter": state_name}
                         ),
                         hx=hx.get(
                             bookmarks.listing,
-                            query={**query_values, "filter": name},
+                            query={**query_values, "filter": state_name},
                             target=id.bookmark_results,
                             swap=outer_morph,
                         ),
                     )
-                    for name in ("all", "unread", "read")
+                    for state_name in ("all", "unread", "read")
                 )
             ),
             count_view(store),
@@ -576,18 +590,17 @@ def edit_view(bookmark: Bookmark, error: str = ""):
         editor_fields(
             field_label(
                 "URL",
-                text_field(name="url", type="url", value=bookmark.url, required=True),
+                url_field(value=bookmark.url),
             ),
             field_label(
                 "Title",
-                text_field(name="title", value=bookmark.title),
+                title_field(value=bookmark.title),
             ),
         ),
         card_actions(
-            primary_button("Save", type="submit"),
+            primary_button("Save"),
             action_button(
                 "Cancel",
-                type="button",
                 hx=hx.get(
                     bookmarks.show,
                     bookmark_id=bookmark.id,
@@ -616,18 +629,15 @@ def form_view(error: str = ""):
     children = [
         field_label(
             "URL",
-            text_field(
-                name="url",
-                type="url",
+            url_field(
                 placeholder="https://example.com/article",
-                required=True,
             ),
         ),
         field_label(
             "Title (optional)",
-            text_field(name="title", placeholder="An excellent read"),
+            title_field(placeholder="An excellent read"),
         ),
-        primary_button("Save", type="submit"),
+        primary_button("Save"),
     ]
     if error:
         children.append(error_message(error, role="alert"))
@@ -673,11 +683,11 @@ class bookmarks(App):
 
     @get("/bookmarks")
     def listing(self, request):
-        state = request.query.get("filter", "all")
+        state = request.query.get(name.filter, "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            request.query.get("q", ""),
+            request.query.get(name.q, ""),
         )
 
     @get("/bookmarks/<int:bookmark_id>")
@@ -715,11 +725,11 @@ class bookmarks(App):
             self.store.toggle(bookmark_id)
         except LookupError:
             return Response("Bookmark not found", 404)
-        state = request.query.get("filter", "all")
+        state = request.query.get(name.filter, "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            request.query.get("q", ""),
+            request.query.get(name.q, ""),
         )
 
     @delete_route("/bookmarks/<int:bookmark_id>")
@@ -728,11 +738,11 @@ class bookmarks(App):
             self.store.delete(bookmark_id)
         except LookupError:
             return Response("Bookmark not found", 404)
-        state = request.query.get("filter", "all")
+        state = request.query.get(name.filter, "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            request.query.get("q", ""),
+            request.query.get(name.q, ""),
         )
 
 

@@ -2,4 +2,4 @@ import hyperclass
 
 
 def test_version():
-    assert hyperclass.__version__ == "0.0.3"
+    assert hyperclass.__version__ == "0.0.4"

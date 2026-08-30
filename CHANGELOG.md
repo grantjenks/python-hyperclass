@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.4 — 2026-08-30
+
+- Declare inherited HTML attribute defaults directly on element classes.
+- Override or suppress class defaults from subclasses and element instances.
+- Use lazy `name.some_field` objects as form names and selectors.
+- Accept first-class names in request values and htmx `include` selectors.
+- Exercise declarative fields and links throughout the bookmark application.
+
 ## 0.0.3 — 2026-08-30
 
 - Bind submitted form values to annotated Python dataclasses.

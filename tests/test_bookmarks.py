@@ -55,6 +55,11 @@ def test_bookmark_lifecycle(tmp_path):
     assert "<!doctype html>" not in payload
     assert "Read this" in payload
     assert "1 unread bookmark" in payload
+    assert (
+        '<input class="text-field url-field" type="url" name="url" required'
+        in payload
+    )
+    assert 'target="_blank" rel="noreferrer"' in payload
     assert 'hx-patch="/bookmarks/1"' in payload
     bookmark = app.store.list()[0]
 

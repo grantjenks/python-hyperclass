@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 from hyperclass import (
     App, button, css, div, form, get, grid, hx, input, outer_morph,
-    post, rem,
+    name, post, rem,
 )
 
 
@@ -34,11 +34,17 @@ class card(div):
     )
 
 
+class guest_name(input):
+    name = name.name
+    placeholder = "Your name"
+    required = True
+
+
 class guest_form(form):
     style = css(display=grid, gap=.75 * rem)
 
     def content(self):
-        yield input(name="name", placeholder="Your name", required=True)
+        yield guest_name()
         yield button("Say hello", type="submit")
 
 
@@ -149,6 +155,39 @@ class greeting(card):
 Text and attribute values are escaped by default. `markup(...)` is the explicit
 escape hatch for trusted HTML.
 
+## HTML attributes inherit too
+
+Non-private class values become default HTML attributes:
+
+~~~python
+from hyperclass import a, input, name
+
+
+class external_link(a):
+    target = "_blank"
+    rel = "noreferrer"
+
+
+class url_field(input):
+    type = "url"
+    name = name.url
+    required = True
+    autocomplete = "url"
+~~~
+
+The defaults follow the same base-to-derived order as styles. Subclasses and
+multiple-inheritance mixins can override them. Attributes passed to an instance
+win last:
+
+~~~python
+external_link("Same tab", href="/", target="_self", rel=None)
+~~~
+
+`None` and `False` suppress an inherited attribute. Underscores in Python names
+become hyphens, so `aria_label` renders as `aria-label`. Boolean `True` renders
+as a valueless HTML attribute. An `hx = hx.get(...)` class default expands into
+the corresponding htmx attributes.
+
 ## CSS is Python too
 
 Base styles, pseudo-states, and media rules live on the component:
@@ -173,7 +212,7 @@ class primary_button(button):
 Pages collect only the rules used by their element tree. Python inheritance and
 the CSS cascade cooperate instead of imitating one another.
 
-## Classes and IDs are selectors
+## Classes, IDs, and names are selectors
 
 Classes can be used directly anywhere a selector is expected:
 
@@ -195,6 +234,19 @@ assert id.unread_count is id.unread_count
 
 As an HTML attribute, `id.unread_count` renders as `unread-count`. As a
 selector, it renders as `#unread-count`.
+
+Form names work the same way while preserving Python underscores:
+
+~~~python
+from hyperclass import name
+
+input(name=name.search_query)
+request.form[name.search_query]
+hx.get(search, include=name.search_query, target=id.results)
+~~~
+
+As an attribute, `name.search_query` renders as `search_query`. As a selector,
+it renders as `[name="search_query"]`. Repeated access returns the same object.
 
 ## Routes are references, not strings
 
@@ -256,6 +308,7 @@ return a more specific `Response`.
 
 The underlying values remain available as `request.form`, `request.query`,
 `.get(...)`, `.getlist(...)`, and `.int(...)` when explicit parsing is clearer.
+Those accessors accept first-class `name.*` objects as well as strings.
 
 ## WSGI and htmx 4
 

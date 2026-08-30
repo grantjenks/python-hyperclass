@@ -230,8 +230,8 @@ class Values(Mapping[str, str]):
     def __init__(self, values: Mapping[str, list[str]] | None = None):
         self._values = dict(values or {})
 
-    def __getitem__(self, key: str) -> str:
-        return self._values[key][-1]
+    def __getitem__(self, key: Any) -> str:
+        return self._values[str(key)][-1]
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._values)
@@ -239,14 +239,14 @@ class Values(Mapping[str, str]):
     def __len__(self) -> int:
         return len(self._values)
 
-    def get(self, key: str, default: Any = None) -> Any:
-        values = self._values.get(key)
+    def get(self, key: Any, default: Any = None) -> Any:
+        values = self._values.get(str(key))
         return values[-1] if values else default
 
-    def getlist(self, key: str) -> list[str]:
-        return list(self._values.get(key, ()))
+    def getlist(self, key: Any) -> list[str]:
+        return list(self._values.get(str(key), ()))
 
-    def int(self, key: str, default: int | None = None) -> int:
+    def int(self, key: Any, default: int | None = None) -> int:
         value = self.get(key)
         if value is None:
             if default is not None:

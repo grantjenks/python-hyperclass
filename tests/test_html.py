@@ -1,11 +1,15 @@
 from hyperclass import (
     Page,
+    a,
+    button,
     css,
     div,
     fragment,
     grid,
     id,
+    input,
     media,
+    name,
     orange,
     outer_morph,
     partial,
@@ -107,3 +111,51 @@ def test_page_collects_state_and_media_styles_from_classes():
         "@media (max-width:40rem){.interactive-card{grid-template-columns:1fr}}"
         in document
     )
+
+
+def test_html_attributes_are_inherited_and_can_be_overridden():
+    class external_link(a):
+        target = "_blank"
+        rel = "noreferrer"
+
+    assert render(external_link("Python", href="https://python.org")) == (
+        '<a class="external-link" target="_blank" rel="noreferrer" '
+        'href="https://python.org">Python</a>'
+    )
+    assert render(external_link("Here", href="/", target="_self", rel=None)) == (
+        '<a class="external-link" target="_self" href="/">Here</a>'
+    )
+
+
+def test_multiple_inheritance_composes_attribute_defaults():
+    class disabled:
+        disabled = True
+        aria_disabled = "true"
+
+    class caution:
+        title = "Careful"
+
+    class cautious_button(button, disabled, caution):
+        title = "Really careful"
+
+    assert render(cautious_button("Continue")) == (
+        '<button class="disabled caution cautious-button" disabled '
+        'aria-disabled="true" title="Really careful">Continue</button>'
+    )
+
+
+def test_names_are_lazy_interned_attributes_and_selectors():
+    assert name.search_query is name.search_query
+    assert str(name.search_query) == "search_query"
+    assert name.search_query.selector == '[name="search_query"]'
+    assert selector(name.search_query) == '[name="search_query"]'
+    assert render(input(name=name.search_query)) == (
+        '<input name="search_query">'
+    )
+
+
+def test_class_default_id_controls_instance_selector():
+    class results(div):
+        id = id.search_results
+
+    assert results().selector == "#search-results"

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import Any
 
-from .css import Media, PSEUDO_STATES, Style
+from .css import PSEUDO_STATES, Media, Style
 
 HTMX_SRC = "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0"
 HTMX_INTEGRITY = (
@@ -49,6 +49,38 @@ class IdNamespace:
 
 
 id = IdNamespace()
+
+
+@dataclass(frozen=True)
+class Name:
+    """A first-class form name which is also usable as a selector."""
+
+    name: str
+
+    @property
+    def selector(self) -> str:
+        return f'[name="{self.name}"]'
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class NameNamespace:
+    def __init__(self) -> None:
+        self._values: dict[str, Name] = {}
+
+    def __getattr__(self, value: str) -> Name:
+        if value.startswith("_"):
+            raise AttributeError(value)
+        try:
+            return self._values[value]
+        except KeyError:
+            field_name = Name(value)
+            self._values[value] = field_name
+            return field_name
+
+
+name = NameNamespace()
 
 
 class ElementMeta(type):
@@ -93,12 +125,14 @@ def semantic_classes(value: type) -> tuple[type, ...]:
 def selector(value: Any) -> str:
     """Turn a selector string, element class, or element instance into CSS."""
 
-    if isinstance(value, Id):
+    if isinstance(value, (Id, Name)):
         return value.selector
     if isinstance(value, str):
         return value
     if isinstance(value, element):
-        identity = getattr(value, "_attrs", {}).get("id")
+        attributes = _class_attributes(type(value))
+        attributes.update(getattr(value, "_attrs", {}))
+        identity = attributes.get("id")
         if identity:
             return f"#{identity}"
         return selector(type(value))
@@ -183,6 +217,27 @@ def _attribute_value(value: Any) -> str:
     return str(value)
 
 
+def _attribute(target: dict[str, Any], name: str, value: Any) -> None:
+    if name == "hx" and isinstance(value, Mapping):
+        target.update(value)
+    else:
+        target[_attribute_name(name)] = value
+
+
+def _class_attributes(value: type) -> dict[str, Any]:
+    attributes: dict[str, Any] = {}
+    for semantic_class in semantic_classes(value):
+        for name, default in semantic_class.__dict__.items():
+            if name.startswith("_") or isinstance(default, (Style, Media, type)):
+                continue
+            if isinstance(default, (classmethod, staticmethod, property)):
+                continue
+            if callable(default):
+                continue
+            _attribute(attributes, name, default)
+    return attributes
+
+
 class element(metaclass=ElementMeta):
     """Base class for all rendered HTML elements."""
 
@@ -190,10 +245,7 @@ class element(metaclass=ElementMeta):
         self._children = children
         self._attrs: dict[str, Any] = {}
         for name, value in attributes.items():
-            if name == "hx" and isinstance(value, Mapping):
-                self._attrs.update(value)
-            else:
-                self._attrs[_attribute_name(name)] = value
+            _attribute(self._attrs, name, value)
 
     @property
     def selector(self) -> str:
@@ -256,7 +308,8 @@ partial = ElementMeta(
 
 
 def _render_attributes(node: element, classes: tuple[type, ...]) -> str:
-    attributes = dict(getattr(node, "_attrs", {}))
+    attributes = _class_attributes(type(node))
+    attributes.update(getattr(node, "_attrs", {}))
     generated = [class_name(value) for value in classes]
     explicit = attributes.pop("class", attributes.pop("class-", None))
     if explicit:
@@ -365,12 +418,15 @@ __all__ = [
     "Id",
     "IdNamespace",
     "Markup",
+    "Name",
+    "NameNamespace",
     "Page",
     "class_name",
     "element",
     "fragment",
     "id",
     "markup",
+    "name",
     "page",
     "partial",
     "render",

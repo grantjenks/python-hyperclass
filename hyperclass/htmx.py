@@ -66,7 +66,7 @@ class Htmx:
         for name, value in options.items():
             if value is None:
                 continue
-            if name in {"target", "select", "select_oob", "sync"}:
+            if name in {"include", "target", "select", "select_oob", "sync"}:
                 value = selector(value) if not isinstance(value, Target) else value
             values[_option_name(name)] = value
         return Attributes(values)
