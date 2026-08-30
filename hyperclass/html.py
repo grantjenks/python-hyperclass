@@ -86,6 +86,23 @@ def markup(value: str) -> Markup:
     return Markup(value)
 
 
+@dataclass(frozen=True)
+class Fragment:
+    """A renderable sequence of sibling nodes."""
+
+    children: tuple[Any, ...]
+
+    def __iter__(self):
+        return iter(self.children)
+
+    def render(self) -> str:
+        return render(self)
+
+
+def fragment(*children: Any) -> Fragment:
+    return Fragment(children)
+
+
 class RenderContext:
     def __init__(self) -> None:
         self.styled_classes: list[type] = []
@@ -183,6 +200,13 @@ for _name in TAG_NAMES:
         (element,),
         {"_tag": _name, "_is_tag": True, "__module__": __name__},
     )
+
+# htmx 4 uses this custom element to route one response fragment elsewhere.
+partial = ElementMeta(
+    "partial",
+    (element,),
+    {"_tag": "hx-partial", "_is_tag": True, "__module__": __name__},
+)
 
 
 def _render_attributes(node: element, classes: tuple[type, ...]) -> str:
@@ -289,14 +313,17 @@ def page(*children: Any, **options: Any) -> Page:
 
 __all__ = [
     "Element",
+    "Fragment",
     "HTMX_INTEGRITY",
     "HTMX_SRC",
     "Markup",
     "Page",
     "class_name",
     "element",
+    "fragment",
     "markup",
     "page",
+    "partial",
     "render",
     "selector",
     "semantic_classes",

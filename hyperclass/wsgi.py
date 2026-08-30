@@ -5,14 +5,56 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
+import re
 from typing import Any
 from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
 
-from .html import Page, element, render
+from .html import Fragment, Page, element, render
 
-Handler = Callable[["Request"], Any]
+Handler = Callable[..., Any]
 StartResponse = Callable[[str, list[tuple[str, str]]], Any]
+
+
+@dataclass(frozen=True)
+class Route:
+    method: str
+    path: str
+    pattern: re.Pattern[str]
+    converters: Mapping[str, Callable[[str], Any]]
+    handler: Handler
+
+    def match(self, path: str) -> dict[str, Any] | None:
+        matched = self.pattern.fullmatch(path)
+        if matched is None:
+            return None
+        return {
+            name: self.converters[name](value)
+            for name, value in matched.groupdict().items()
+        }
+
+
+_PARAMETER = re.compile(r"<(?:(int|str):)?([A-Za-z_]\w*)>")
+
+
+def _compile_path(path: str) -> tuple[re.Pattern[str], dict[str, Callable]]:
+    pieces: list[str] = []
+    converters: dict[str, Callable[[str], Any]] = {}
+    position = 0
+    for parameter in _PARAMETER.finditer(path):
+        pieces.append(re.escape(path[position : parameter.start()]))
+        kind, name = parameter.groups()
+        if name in converters:
+            raise ValueError(f"duplicate route parameter: {name}")
+        if kind == "int":
+            pieces.append(fr"(?P<{name}>-?\d+)")
+            converters[name] = int
+        else:
+            pieces.append(fr"(?P<{name}>[^/]+)")
+            converters[name] = str
+        position = parameter.end()
+    pieces.append(re.escape(path[position:]))
+    return re.compile("".join(pieces)), converters
 
 
 class Values(Mapping[str, str]):
@@ -84,18 +126,37 @@ class Response:
 
 
 class App:
-    """A WSGI callable with exact-path method routing."""
+    """A WSGI callable with method routing and typed path parameters."""
 
     def __init__(self, *, title: str = "Hyperclass"):
         self.title = title
         self.routes: dict[tuple[str, str], Handler] = {}
+        self.dynamic_routes: list[Route] = []
 
     def route(self, path: str, *methods: str) -> Callable[[Handler], Handler]:
         methods = methods or ("GET",)
 
         def decorator(handler: Handler) -> Handler:
             for method in methods:
-                self.routes[(method.upper(), path)] = handler
+                normalized_method = method.upper()
+                if _PARAMETER.search(path):
+                    pattern, converters = _compile_path(path)
+                    self.dynamic_routes = [
+                        route
+                        for route in self.dynamic_routes
+                        if (route.method, route.path) != (normalized_method, path)
+                    ]
+                    self.dynamic_routes.append(
+                        Route(
+                            normalized_method,
+                            path,
+                            pattern,
+                            converters,
+                            handler,
+                        )
+                    )
+                else:
+                    self.routes[(normalized_method, path)] = handler
             return handler
 
         return decorator
@@ -120,14 +181,25 @@ class App:
     ) -> list[bytes]:
         request = Request(environ)
         handler = self.routes.get((request.method, request.path))
+        parameters: dict[str, Any] = {}
+        path_exists = any(path == request.path for _, path in self.routes)
         if handler is None:
-            path_exists = any(path == request.path for _, path in self.routes)
+            for route in self.dynamic_routes:
+                matched = route.match(request.path)
+                if matched is None:
+                    continue
+                path_exists = True
+                if route.method == request.method:
+                    handler = route.handler
+                    parameters = matched
+                    break
+        if handler is None:
             status = 405 if path_exists else 404
             return self._respond(
                 start_response, Response(HTTPStatus(status).phrase, status), request
             )
         try:
-            result = handler(request)
+            result = handler(request, **parameters)
         except ValueError as error:
             result = Response(str(error), 400)
         if not isinstance(result, Response):
@@ -140,7 +212,7 @@ class App:
         body = response.body
         if isinstance(body, Page):
             text = body.render()
-        elif isinstance(body, element):
+        elif isinstance(body, (element, Fragment)):
             text = (
                 render(body)
                 if request.is_htmx

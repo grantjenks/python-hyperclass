@@ -55,6 +55,8 @@ Hyperclass treats classes and instances differently:
 - Multiple inheritance composes multiple CSS classes.
 - Classes are also usable as selectors and htmx targets.
 - Instances contain attributes, state, and child content.
+- Typed route parameters turn URL segments into handler arguments.
+- htmx 4 partials can update several object-selected regions from one response.
 
 ~~~python
 class compact:
@@ -163,17 +165,23 @@ return Page(counter(0), title="Counter")
 Pages collect the styles used by their element tree and include pinned htmx
 4.0.0 from its CDN.
 
-## Try the counter
+## Try the examples
 
-The repository includes the example above as a runnable application:
+The repository includes the counter and a complete SQLite bookmark inbox:
 
 ~~~console
 git clone https://github.com/grantjenks/python-hyperclass
 cd python-hyperclass
-python -m examples.counter
+python -m examples.bookmarks
 ~~~
 
-Then open <http://127.0.0.1:8000>.
+Then open <http://127.0.0.1:8000>. The bookmark app supports adding, filtering,
+marking read or unread, and deleting bookmarks. Its implementation is still only
+Python and the standard library: semantic subclasses style read and unread
+cards, routes such as `/bookmarks/<int:bookmark_id>` receive typed arguments,
+and htmx 4 `<hx-partial>` responses update a card and the unread count together.
+
+Use `python -m examples.counter` for the smaller introduction.
 
 ## Principles
 
@@ -193,8 +201,8 @@ Then open <http://127.0.0.1:8000>.
 ## Status
 
 The main branch contains the first working vertical slice: HTML elements,
-semantic subclasses, inherited CSS, object selectors, htmx attributes, pages,
-request parsing, and WSGI routing. Version 0.0.2 is in development and the API
+semantic subclasses, inherited CSS, object selectors, htmx attributes and partials,
+pages, request parsing, typed WSGI routing, and a persistent example application. Version 0.0.2 is in development and the API
 is deliberately pre-alpha.
 
 PyPI version 0.0.1 established the package name and release pipeline; it contains

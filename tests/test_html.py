@@ -1,4 +1,17 @@
-from hyperclass import Page, css, div, grid, orange, rem, render, selector
+from hyperclass import (
+    Page,
+    css,
+    div,
+    fragment,
+    grid,
+    orange,
+    outer_morph,
+    partial,
+    rem,
+    render,
+    selector,
+    span,
+)
 
 
 class card(div):
@@ -54,3 +67,14 @@ def test_page_collects_styles_and_pins_htmx_4():
         in document
     )
     assert "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0" in document
+
+
+def test_fragment_and_htmx_partial_render_sibling_updates():
+    value = fragment(
+        div("primary"),
+        partial(span("3", id="count"), id="count", hx_swap=outer_morph),
+    )
+    assert render(value) == (
+        '<div>primary</div><hx-partial id="count" hx-swap="outerMorph">'
+        '<span id="count">3</span></hx-partial>'
+    )

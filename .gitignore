@@ -3,6 +3,7 @@ __pycache__/
 *.so
 build/
 dist/
+bookmarks.db
 *.egg-info/
 .nox/
 .pytest_cache/

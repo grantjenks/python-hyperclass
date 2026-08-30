@@ -96,3 +96,27 @@ def test_missing_route_is_not_found():
     captured, payload = request(make_app(), path="/missing")
     assert captured["status"] == "404 Not Found"
     assert payload == "Not Found"
+
+
+def test_typed_route_parameter_is_passed_to_handler():
+    app = App()
+
+    @app.get("/items/<int:item_id>")
+    def item(request, item_id):
+        return div(f"item {item_id}")
+
+    captured, payload = request(app, path="/items/42", htmx=True)
+    assert captured["status"] == "200 OK"
+    assert payload == "<div>item 42</div>"
+
+
+def test_dynamic_route_with_wrong_method_is_method_not_allowed():
+    app = App()
+
+    @app.patch("/items/<int:item_id>")
+    def update(request, item_id):
+        return div(item_id)
+
+    captured, payload = request(app, method="DELETE", path="/items/42")
+    assert captured["status"] == "405 Method Not Allowed"
+    assert payload == "Method Not Allowed"
