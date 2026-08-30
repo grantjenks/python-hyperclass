@@ -43,7 +43,7 @@ def test_bookmark_lifecycle_in_a_browser(page: Page, tmp_path):
         expect(page.get_by_text("No bookmarks yet.", exact=True)).to_be_visible()
 
         stylesheet = page.locator("#hyperclass-styles")
-        expect(stylesheet).not_to_contain_text(".bookmark-card")
+        assert ".bookmark-card" not in (stylesheet.text_content() or "")
 
         page.get_by_label("URL", exact=True).fill("https://example.com/read")
         page.get_by_label("Title (optional)", exact=True).fill("Read this")
@@ -59,12 +59,10 @@ def test_bookmark_lifecycle_in_a_browser(page: Page, tmp_path):
         card = page.locator(".bookmark-card")
         expect(card).to_have_count(1)
         expect(card).to_contain_text("Read this")
-        expect(stylesheet).to_contain_text(
-            ".bookmark-card.unread.unread-bookmark"
+        expect(card).to_have_css("display", "grid")
+        assert ".bookmark-card.unread.unread-bookmark" in (
+            stylesheet.text_content() or ""
         )
-        assert card.evaluate(
-            "element => getComputedStyle(element).display"
-        ) == "grid"
 
         card.get_by_role("button", name="Mark read", exact=True).click()
         expect(
