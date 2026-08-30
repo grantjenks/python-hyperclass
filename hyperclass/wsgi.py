@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from functools import update_wrapper
 from http import HTTPStatus
 import re
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote, urlencode
 from wsgiref.simple_server import make_server
 
 from .html import Fragment, Page, element, render
@@ -24,6 +25,10 @@ class Route:
     converters: Mapping[str, Callable[[str], Any]]
     handler: Handler
 
+    @property
+    def parameters(self) -> tuple[str, ...]:
+        return tuple(self.converters)
+
     def match(self, path: str) -> dict[str, Any] | None:
         matched = self.pattern.fullmatch(path)
         if matched is None:
@@ -32,6 +37,78 @@ class Route:
             name: self.converters[name](value)
             for name, value in matched.groupdict().items()
         }
+
+    def url(
+        self,
+        *,
+        query: Mapping[str, Any] | None = None,
+        **parameters: Any,
+    ) -> str:
+        remaining = dict(parameters)
+
+        def replace(parameter: re.Match[str]) -> str:
+            kind, name = parameter.groups()
+            if name not in remaining:
+                raise TypeError(f"missing route parameter: {name}")
+            value = remaining.pop(name)
+            if kind == "int":
+                try:
+                    value = int(value)
+                except (TypeError, ValueError) as error:
+                    raise TypeError(f"invalid integer route parameter: {name}") from error
+            return quote(str(value), safe="")
+
+        path = _PARAMETER.sub(replace, self.path)
+        if remaining:
+            names = ", ".join(sorted(remaining))
+            raise TypeError(f"unexpected route parameter(s): {names}")
+        if query:
+            path = f"{path}?{urlencode(query, doseq=True)}"
+        return path
+
+
+class Endpoint:
+    """A callable handler carrying enough metadata to generate its URLs."""
+
+    def __init__(self, handler: Handler):
+        self.handler = handler
+        self.routes: list[Route] = []
+        update_wrapper(self, handler)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.handler(*args, **kwargs)
+
+    def route(self, method: str | None = None) -> Route:
+        candidates = self.routes
+        if method is not None:
+            candidates = [route for route in candidates if route.method == method.upper()]
+        elif len(candidates) > 1:
+            get_routes = [route for route in candidates if route.method == "GET"]
+            if len(get_routes) == 1:
+                candidates = get_routes
+        if len(candidates) != 1:
+            detail = f" for {method.upper()}" if method else ""
+            raise TypeError(f"handler does not have exactly one route{detail}")
+        return candidates[0]
+
+    def parameters(self, method: str | None = None) -> tuple[str, ...]:
+        return self.route(method).parameters
+
+    @property
+    def path(self) -> str:
+        return self.route().path
+
+    def url(
+        self,
+        *,
+        method: str | None = None,
+        query: Mapping[str, Any] | None = None,
+        **parameters: Any,
+    ) -> str:
+        return self.route(method).url(query=query, **parameters)
+
+    def __str__(self) -> str:
+        return self.url()
 
 
 _PARAMETER = re.compile(r"<(?:(int|str):)?([A-Za-z_]\w*)>")
@@ -133,47 +210,48 @@ class App:
         self.routes: dict[tuple[str, str], Handler] = {}
         self.dynamic_routes: list[Route] = []
 
-    def route(self, path: str, *methods: str) -> Callable[[Handler], Handler]:
+    def route(self, path: str, *methods: str) -> Callable[[Handler], Endpoint]:
         methods = methods or ("GET",)
 
-        def decorator(handler: Handler) -> Handler:
+        def decorator(handler: Handler) -> Endpoint:
+            endpoint = handler if isinstance(handler, Endpoint) else Endpoint(handler)
             for method in methods:
                 normalized_method = method.upper()
+                pattern, converters = _compile_path(path)
+                route = Route(
+                    normalized_method,
+                    path,
+                    pattern,
+                    converters,
+                    endpoint,
+                )
+                endpoint.routes.append(route)
                 if _PARAMETER.search(path):
-                    pattern, converters = _compile_path(path)
                     self.dynamic_routes = [
                         route
                         for route in self.dynamic_routes
                         if (route.method, route.path) != (normalized_method, path)
                     ]
-                    self.dynamic_routes.append(
-                        Route(
-                            normalized_method,
-                            path,
-                            pattern,
-                            converters,
-                            handler,
-                        )
-                    )
+                    self.dynamic_routes.append(route)
                 else:
-                    self.routes[(normalized_method, path)] = handler
-            return handler
+                    self.routes[(normalized_method, path)] = endpoint
+            return endpoint
 
         return decorator
 
-    def get(self, path: str) -> Callable[[Handler], Handler]:
+    def get(self, path: str) -> Callable[[Handler], Endpoint]:
         return self.route(path, "GET")
 
-    def post(self, path: str) -> Callable[[Handler], Handler]:
+    def post(self, path: str) -> Callable[[Handler], Endpoint]:
         return self.route(path, "POST")
 
-    def put(self, path: str) -> Callable[[Handler], Handler]:
+    def put(self, path: str) -> Callable[[Handler], Endpoint]:
         return self.route(path, "PUT")
 
-    def patch(self, path: str) -> Callable[[Handler], Handler]:
+    def patch(self, path: str) -> Callable[[Handler], Endpoint]:
         return self.route(path, "PATCH")
 
-    def delete(self, path: str) -> Callable[[Handler], Handler]:
+    def delete(self, path: str) -> Callable[[Handler], Endpoint]:
         return self.route(path, "DELETE")
 
     def __call__(

@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from hyperclass import (
     App,
+    Endpoint,
     Response,
     a,
     article,
@@ -26,6 +27,7 @@ from hyperclass import (
     h2,
     header,
     hx,
+    id,
     input,
     label,
     main,
@@ -37,7 +39,6 @@ from hyperclass import (
     section,
     small,
     span,
-    strong,
 )
 
 
@@ -48,6 +49,14 @@ class Bookmark:
     title: str
     is_read: bool
     created_at: str
+
+
+@dataclass(frozen=True)
+class BookmarkRoutes:
+    create: Endpoint
+    bookmarks: Endpoint
+    toggle: Endpoint
+    delete: Endpoint
 
 
 class BookmarkStore:
@@ -274,8 +283,9 @@ class bookmark_card(article):
         box_shadow="0 1px 3px rgb(15 23 42 / .06)",
     )
 
-    def __init__(self, bookmark: Bookmark):
+    def __init__(self, bookmark: Bookmark, routes: BookmarkRoutes):
         self.bookmark = bookmark
+        self.routes = routes
 
     def content(self):
         bookmark = self.bookmark
@@ -295,7 +305,8 @@ class bookmark_card(article):
                 "Mark unread" if bookmark.is_read else "Mark read",
                 type="button",
                 hx=hx.patch(
-                    f"/bookmarks/{bookmark.id}",
+                    self.routes.toggle,
+                    bookmark_id=bookmark.id,
                     target=closest(bookmark_card),
                     swap=outer_morph,
                 ),
@@ -304,7 +315,8 @@ class bookmark_card(article):
                 "Delete",
                 type="button",
                 hx=hx.delete(
-                    f"/bookmarks/{bookmark.id}",
+                    self.routes.delete,
+                    bookmark_id=bookmark.id,
                     target=closest(bookmark_card),
                     swap="delete",
                     confirm="Delete this bookmark?",
@@ -339,28 +351,30 @@ class empty_state(p):
     )
 
 
-def bookmark_view(bookmark: Bookmark):
+def bookmark_view(bookmark: Bookmark, routes: BookmarkRoutes):
     kind = read_bookmark if bookmark.is_read else unread_bookmark
-    return kind(bookmark)
+    return kind(bookmark, routes)
 
 
 def count_view(store: BookmarkStore):
     count = store.unread_count()
     noun = "bookmark" if count == 1 else "bookmarks"
-    return unread_badge(f"{count} unread {noun}", id="unread-count")
+    return unread_badge(f"{count} unread {noun}", id=id.unread_count)
 
 
-def list_view(store: BookmarkStore, state: str = "all"):
+def list_view(
+    store: BookmarkStore, routes: BookmarkRoutes, state: str = "all"
+):
     bookmarks = store.list(state)
     children = (
-        [bookmark_view(bookmark) for bookmark in bookmarks]
+        [bookmark_view(bookmark, routes) for bookmark in bookmarks]
         if bookmarks
         else [empty_state(f"No {state if state != 'all' else ''} bookmarks yet.")]
     )
-    return bookmark_list(*children, id="bookmark-list")
+    return bookmark_list(*children, id=id.bookmark_list)
 
 
-def form_view(error: str = ""):
+def form_view(routes: BookmarkRoutes, error: str = ""):
     children = [
         field_label(
             "URL",
@@ -382,29 +396,30 @@ def form_view(error: str = ""):
     return bookmark_form(
         *children,
         method="post",
-        action="/bookmarks",
+        action=routes.create,
         hx=hx.post(
-            "/bookmarks", target=closest(bookmark_app), swap=outer_morph
+            routes.create, target=closest(bookmark_app), swap=outer_morph
         ),
     )
 
 
-def app_view(store: BookmarkStore, error: str = ""):
+def app_view(store: BookmarkStore, routes: BookmarkRoutes, error: str = ""):
     return bookmark_app(
         app_header(
             eyebrow("Hyperclass example"),
             h1("Bookmark inbox"),
             p("Save now. Read when the tab situation is less dramatic."),
         ),
-        form_view(error),
+        form_view(routes, error),
         bookmark_toolbar(
             filters(
                 *(
                     filter_link(
                         name.title(),
-                        href=f"/bookmarks?filter={name}",
+                        href=routes.bookmarks.url(query={"filter": name}),
                         hx=hx.get(
-                            f"/bookmarks?filter={name}",
+                            routes.bookmarks,
+                            query={"filter": name},
                             target=bookmark_list,
                             swap=outer_morph,
                         ),
@@ -414,7 +429,7 @@ def app_view(store: BookmarkStore, error: str = ""):
             ),
             count_view(store),
         ),
-        list_view(store),
+        list_view(store, routes),
         footer(small("Python · SQLite · WSGI · htmx 4")),
     )
 
@@ -425,20 +440,24 @@ def create_app(database: str | Path) -> App:
 
     @application.get("/")
     def index(request):
-        return app_view(store)
+        return app_view(store, routes)
 
     @application.post("/bookmarks")
     def create(request):
         try:
             store.add(request.form.get("url", ""), request.form.get("title", ""))
         except ValueError as error:
-            return Response(app_view(store, str(error)), 422)
-        return app_view(store)
+            return Response(app_view(store, routes, str(error)), 422)
+        return app_view(store, routes)
 
     @application.get("/bookmarks")
     def bookmarks(request):
         state = request.query.get("filter", "all")
-        return list_view(store, state if state in {"all", "unread", "read"} else "all")
+        return list_view(
+            store,
+            routes,
+            state if state in {"all", "unread", "read"} else "all",
+        )
 
     @application.patch("/bookmarks/<int:bookmark_id>")
     def toggle(request, bookmark_id):
@@ -447,8 +466,8 @@ def create_app(database: str | Path) -> App:
         except LookupError:
             return Response("Bookmark not found", 404)
         return fragment(
-            bookmark_view(bookmark),
-            partial(count_view(store), id="unread-count", hx_swap=outer_morph),
+            bookmark_view(bookmark, routes),
+            partial(count_view(store), id=id.unread_count, hx_swap=outer_morph),
         )
 
     @application.delete("/bookmarks/<int:bookmark_id>")
@@ -459,10 +478,13 @@ def create_app(database: str | Path) -> App:
             return Response("Bookmark not found", 404)
         return fragment(
             markup("<!-- bookmark deleted -->"),
-            partial(count_view(store), id="unread-count", hx_swap=outer_morph),
+            partial(count_view(store), id=id.unread_count, hx_swap=outer_morph),
         )
 
+    routes = BookmarkRoutes(create, bookmarks, toggle, delete)
+
     application.store = store
+    application.bookmark_routes = routes
     return application
 
 

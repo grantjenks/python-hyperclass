@@ -44,7 +44,7 @@ from .htmx import (
 from .htmx import (
     delete as delete_swap,
 )
-from .wsgi import App, Request, Response, Values
+from .wsgi import App, Endpoint, Request, Response, Route, Values
 
 __version__ = "0.0.2"
 
@@ -60,10 +60,12 @@ __all__ = [
     "App",
     "Attributes",
     "Color",
+    "Endpoint",
     "Htmx",
     "Length",
     "Request",
     "Response",
+    "Route",
     "Style",
     "Target",
     "Unit",

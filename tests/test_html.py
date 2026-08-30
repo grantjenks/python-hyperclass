@@ -4,6 +4,7 @@ from hyperclass import (
     div,
     fragment,
     grid,
+    id,
     orange,
     outer_morph,
     partial,
@@ -77,4 +78,14 @@ def test_fragment_and_htmx_partial_render_sibling_updates():
     assert render(value) == (
         '<div>primary</div><hx-partial id="count" hx-swap="outerMorph">'
         '<span id="count">3</span></hx-partial>'
+    )
+
+
+def test_ids_are_lazy_interned_python_references():
+    assert id.unread_count is id.unread_count
+    assert str(id.unread_count) == "unread-count"
+    assert id.unread_count.selector == "#unread-count"
+    assert selector(id.unread_count) == "#unread-count"
+    assert render(span("3", id=id.unread_count)) == (
+        '<span id="unread-count">3</span>'
     )

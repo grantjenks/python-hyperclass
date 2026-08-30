@@ -13,6 +13,7 @@ from hyperclass import (
     input,
     outer_morph,
     output,
+    render,
 )
 
 
@@ -120,3 +121,34 @@ def test_dynamic_route_with_wrong_method_is_method_not_allowed():
     captured, payload = request(app, method="DELETE", path="/items/42")
     assert captured["status"] == "405 Method Not Allowed"
     assert payload == "Method Not Allowed"
+
+
+def test_decorated_handler_is_a_reversible_route_reference():
+    app = App()
+
+    @app.patch("/items/<int:item_id>")
+    def update(request, item_id):
+        return div(item_id)
+
+    assert update.path == "/items/<int:item_id>"
+    assert update.url(item_id=42) == "/items/42"
+    assert update.handler.__name__ == "update"
+    assert render(
+        button(
+            "Update",
+            hx=hx.patch(update, item_id=42, target=counter),
+        )
+    ) == (
+        '<button hx-patch="/items/42" hx-target=".counter">Update</button>'
+    )
+
+
+def test_route_reference_supports_query_parameters_and_html_attributes():
+    app = App()
+
+    @app.get("/items")
+    def items(request):
+        return div()
+
+    assert items.url(query={"filter": "unread"}) == "/items?filter=unread"
+    assert render(form(action=items)) == '<form action="/items"></form>'

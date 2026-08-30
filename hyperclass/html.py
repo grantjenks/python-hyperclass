@@ -19,6 +19,38 @@ def class_name(value: type) -> str:
     return value.__name__.replace("_", "-")
 
 
+@dataclass(frozen=True)
+class Id:
+    """A first-class HTML id which is also usable as a selector."""
+
+    name: str
+
+    @property
+    def selector(self) -> str:
+        return f"#{self.name}"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class IdNamespace:
+    def __init__(self) -> None:
+        self._values: dict[str, Id] = {}
+
+    def __getattr__(self, name: str) -> Id:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        try:
+            return self._values[name]
+        except KeyError:
+            value = Id(name.replace("_", "-"))
+            self._values[name] = value
+            return value
+
+
+id = IdNamespace()
+
+
 class ElementMeta(type):
     @property
     def selector(cls) -> str:
@@ -61,6 +93,8 @@ def semantic_classes(value: type) -> tuple[type, ...]:
 def selector(value: Any) -> str:
     """Turn a selector string, element class, or element instance into CSS."""
 
+    if isinstance(value, Id):
+        return value.selector
     if isinstance(value, str):
         return value
     if isinstance(value, element):
@@ -316,11 +350,14 @@ __all__ = [
     "Fragment",
     "HTMX_INTEGRITY",
     "HTMX_SRC",
+    "Id",
+    "IdNamespace",
     "Markup",
     "Page",
     "class_name",
     "element",
     "fragment",
+    "id",
     "markup",
     "page",
     "partial",

@@ -57,6 +57,8 @@ Hyperclass treats classes and instances differently:
 - Instances contain attributes, state, and child content.
 - Typed route parameters turn URL segments into handler arguments.
 - htmx 4 partials can update several object-selected regions from one response.
+- `id.some_name` creates an interned Python reference for `some-name`.
+- Decorated handlers are reversible route references; URLs need not be repeated.
 
 ~~~python
 class compact:
@@ -146,6 +148,27 @@ if __name__ == "__main__":
 The application is a normal WSGI callable. The development server can use
 Python's standard library; production deployment can use any WSGI server.
 
+Decorated handlers retain their routing metadata, so application code can refer
+to Python rather than repeat URL strings:
+
+~~~python
+hx.patch(
+    increment,
+    target=closest(counter),
+    swap=outer_morph,
+)
+~~~
+
+Typed path parameters are supplied alongside htmx options:
+
+~~~python
+hx.patch(toggle, bookmark_id=bookmark.id, target=closest(bookmark_card))
+~~~
+
+The same endpoint exposes `.url(...)` for ordinary links and form actions. IDs
+work similarly: `id.unread_count` renders as `unread-count` in an HTML
+attribute and as `#unread-count` when used as a selector.
+
 htmx supplies browser-to-server interaction without introducing a client-side
 component runtime. Hyperclass should favor native HTML and CSS for local
 behavior and use htmx when the server needs to participate.
@@ -201,8 +224,9 @@ Use `python -m examples.counter` for the smaller introduction.
 ## Status
 
 The main branch contains the first working vertical slice: HTML elements,
-semantic subclasses, inherited CSS, object selectors, htmx attributes and partials,
-pages, request parsing, typed WSGI routing, and a persistent example application. Version 0.0.2 is in development and the API
+semantic subclasses, inherited CSS, object and ID selectors, htmx attributes and
+partials, pages, request parsing, reversible typed WSGI routing, and a persistent
+example application. Version 0.0.2 is in development and the API
 is deliberately pre-alpha.
 
 PyPI version 0.0.1 established the package name and release pipeline; it contains

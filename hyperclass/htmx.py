@@ -51,7 +51,17 @@ def _option_name(value: str) -> str:
 
 
 class Htmx:
-    def request(self, method: str, url: str, **options: Any) -> Attributes:
+    def request(self, method: str, url: Any, **options: Any) -> Attributes:
+        route_url = getattr(url, "url", None)
+        route_parameters = getattr(url, "parameters", None)
+        if callable(route_url) and callable(route_parameters):
+            parameters = {
+                name: options.pop(name)
+                for name in route_parameters(method)
+                if name in options
+            }
+            query = options.pop("query", None)
+            url = route_url(method=method, query=query, **parameters)
         values: dict[str, Any] = {f"hx-{method.lower()}": url}
         for name, value in options.items():
             if value is None:
@@ -61,19 +71,19 @@ class Htmx:
             values[_option_name(name)] = value
         return Attributes(values)
 
-    def get(self, url: str, **options: Any) -> Attributes:
+    def get(self, url: Any, **options: Any) -> Attributes:
         return self.request("get", url, **options)
 
-    def post(self, url: str, **options: Any) -> Attributes:
+    def post(self, url: Any, **options: Any) -> Attributes:
         return self.request("post", url, **options)
 
-    def put(self, url: str, **options: Any) -> Attributes:
+    def put(self, url: Any, **options: Any) -> Attributes:
         return self.request("put", url, **options)
 
-    def patch(self, url: str, **options: Any) -> Attributes:
+    def patch(self, url: Any, **options: Any) -> Attributes:
         return self.request("patch", url, **options)
 
-    def delete(self, url: str, **options: Any) -> Attributes:
+    def delete(self, url: Any, **options: Any) -> Attributes:
         return self.request("delete", url, **options)
 
     def query(self, url: str, **options: Any) -> Attributes:
