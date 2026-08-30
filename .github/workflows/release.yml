@@ -4,10 +4,14 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - main
+    paths:
+      - RELEASE
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write  # for creating the matching tag and GitHub release
   id-token: write  # for PyPI trusted publishing
 
 jobs:
@@ -24,7 +28,7 @@ jobs:
           check-latest: true
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@v8
 
       - name: Install build backend
         run: uvx --from build pyproject-build --version
@@ -36,3 +40,15 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           verbose: true
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/heads/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          test "$(tr -d '[:space:]' < RELEASE)" = "$version"
+          gh release create "v$version" \
+            --target "$GITHUB_SHA" \
+            --title "Hyperclass $version" \
+            --generate-notes
