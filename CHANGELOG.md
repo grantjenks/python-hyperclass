@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.5 — 2026-08-30
+
+- Carry component CSS with htmx fragment responses.
+- Keep a stable page stylesheet target for styles introduced after first load.
+- Preserve inherited CSS precedence when fragment styles arrive later.
+- Cover the empty-inbox-to-first-bookmark path as a regression.
+
 ## 0.0.4 — 2026-08-30
 
 - Declare inherited HTML attribute defaults directly on element classes.

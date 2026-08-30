@@ -173,33 +173,38 @@ def fragment(*children: Any) -> Fragment:
 
 class RenderContext:
     def __init__(self) -> None:
-        self.styled_classes: list[type] = []
-        self._seen_styles: set[type] = set()
+        self.styled_elements: list[type] = []
+        self._seen_elements: set[type] = set()
 
     def register(self, value: type) -> None:
-        if value in self._seen_styles:
+        if value in self._seen_elements:
             return
+        classes = semantic_classes(value)
         if any(
             isinstance(rule, (Style, Media))
-            for rule in value.__dict__.values()
+            for semantic_class in classes
+            for rule in semantic_class.__dict__.values()
         ):
-            self._seen_styles.add(value)
-            self.styled_classes.append(value)
+            self._seen_elements.add(value)
+            self.styled_elements.append(value)
 
     def stylesheet(self) -> str:
         rules: list[str] = []
-        for value in self.styled_classes:
-            base = f".{class_name(value)}"
-            for name, rule in value.__dict__.items():
-                if name == "style" and isinstance(rule, Style):
-                    rules.append(f"{base}{{{rule.render()}}}")
-                elif name in PSEUDO_STATES and isinstance(rule, Style):
-                    state = name.replace("_", "-")
-                    rules.append(f"{base}:{state}{{{rule.render()}}}")
-                elif isinstance(rule, Media):
-                    rules.append(
-                        f"@media {rule.query()}{{{base}{{{rule.style.render()}}}}}"
-                    )
+        for element_type in self.styled_elements:
+            classes = semantic_classes(element_type)
+            base = "".join(f".{class_name(value)}" for value in classes)
+            for value in classes:
+                for name, rule in value.__dict__.items():
+                    if name == "style" and isinstance(rule, Style):
+                        rules.append(f"{base}{{{rule.render()}}}")
+                    elif name in PSEUDO_STATES and isinstance(rule, Style):
+                        state = name.replace("_", "-")
+                        rules.append(f"{base}:{state}{{{rule.render()}}}")
+                    elif isinstance(rule, Media):
+                        rules.append(
+                            f"@media {rule.query()}"
+                            f"{{{base}{{{rule.style.render()}}}}}"
+                        )
         return "".join(rules)
 
 
@@ -340,8 +345,7 @@ def _render(value: Any, context: RenderContext) -> str:
         value_type = type(value)
         tag = _tag_for(value_type)
         classes = semantic_classes(value_type)
-        for semantic_class in classes:
-            context.register(semantic_class)
+        context.register(value_type)
         attributes = _render_attributes(value, classes)
         if tag in VOID_TAGS:
             return f"<{tag}{attributes}>"
@@ -383,7 +387,9 @@ class Page:
         body_html = _render(self.children, context)
         head_html = _render(self.head, context)
         stylesheet = context.stylesheet()
-        style_html = f"<style>{stylesheet}</style>" if stylesheet else ""
+        style_html = (
+            f'<style id="{id.hyperclass_styles}">{stylesheet}</style>'
+        )
         script_html = ""
         if self.htmx:
             script_html = (

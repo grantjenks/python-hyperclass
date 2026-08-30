@@ -38,6 +38,8 @@ def test_bookmark_lifecycle(tmp_path):
     assert payload.startswith("<!doctype html>")
     assert "Bookmark inbox" in payload
     assert "0 unread bookmarks" in payload
+    assert '<style id="hyperclass-styles">' in payload
+    assert ".bookmark-card" not in payload
     assert 'content="width=device-width, initial-scale=1"' in payload
     assert (
         "@media (max-width:40rem){.bookmark-form{grid-template-columns:1fr}}"
@@ -61,6 +63,8 @@ def test_bookmark_lifecycle(tmp_path):
     )
     assert 'target="_blank" rel="noreferrer"' in payload
     assert 'hx-patch="/bookmarks/1"' in payload
+    assert '<hx-partial id="hyperclass-styles" hx-swap="append">' in payload
+    assert ".bookmark-card.unread.unread-bookmark{display:grid" in payload
     bookmark = app.store.list()[0]
 
     captured, payload = request(

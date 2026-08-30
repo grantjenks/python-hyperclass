@@ -67,9 +67,14 @@ def test_page_collects_styles_and_pins_htmx_4():
     document = Page(warning_card("Careful"), title="Demo").render()
     assert document.startswith("<!doctype html>")
     assert "<title>Demo</title>" in document
-    assert ".card{display:grid;gap:1rem;padding:1.25rem}" in document
+    assert '<style id="hyperclass-styles">' in document
     assert (
-        ".warning-card{border-color:orange;background:rgb(255 165 0 / 0.08)}"
+        ".card.warning-card{display:grid;gap:1rem;padding:1.25rem}"
+        in document
+    )
+    assert (
+        ".card.warning-card{border-color:orange;"
+        "background:rgb(255 165 0 / 0.08)}"
         in document
     )
     assert "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0" in document
@@ -103,12 +108,14 @@ def test_page_collects_state_and_media_styles_from_classes():
         narrow = media(max_width=40 * rem, grid_template_columns="1fr")
 
     document = Page(interactive_card()).render()
-    assert ".interactive-card:hover{background:lavender}" in document
+    assert ".card.interactive-card:hover{background:lavender}" in document
     assert (
-        ".interactive-card:focus-visible{outline:2px solid purple}" in document
+        ".card.interactive-card:focus-visible{outline:2px solid purple}"
+        in document
     )
     assert (
-        "@media (max-width:40rem){.interactive-card{grid-template-columns:1fr}}"
+        "@media (max-width:40rem){.card.interactive-card"
+        "{grid-template-columns:1fr}}"
         in document
     )
 

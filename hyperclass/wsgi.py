@@ -13,7 +13,16 @@ from typing import Any, Union, get_args, get_origin, get_type_hints
 from urllib.parse import parse_qs, quote, urlencode
 from wsgiref.simple_server import make_server
 
-from .html import Fragment, Page, element, render
+from .html import (
+    Fragment,
+    Page,
+    RenderContext,
+    element,
+    id,
+    markup,
+    partial,
+    render,
+)
 
 Handler = Callable[..., Any]
 StartResponse = Callable[[str, list[tuple[str, str]]], Any]
@@ -479,11 +488,20 @@ class App:
         if isinstance(body, Page):
             text = body.render()
         elif isinstance(body, (element, Fragment)):
-            text = (
-                render(body)
-                if request.is_htmx
-                else Page(body, title=self.title).render()
-            )
+            if request.is_htmx:
+                context = RenderContext()
+                text = render(body, context=context)
+                stylesheet = context.stylesheet()
+                if stylesheet:
+                    text += render(
+                        partial(
+                            markup(stylesheet),
+                            id=id.hyperclass_styles,
+                            hx_swap="append",
+                        )
+                    )
+            else:
+                text = Page(body, title=self.title).render()
         else:
             text = str(body)
         payload = text.encode("utf-8")

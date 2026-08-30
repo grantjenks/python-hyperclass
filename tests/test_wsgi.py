@@ -8,6 +8,7 @@ from hyperclass import (
     Values,
     button,
     closest,
+    css,
     div,
     form,
     get,
@@ -276,3 +277,22 @@ def test_values_accept_first_class_form_names():
     assert values.get(name.search_query) == "wsgi"
     assert values.getlist(name.search_query) == ["python", "wsgi"]
     assert values.int(name.page) == 3
+
+
+def test_htmx_fragment_appends_required_styles_to_page_stylesheet():
+    class styled_result(div):
+        style = css(color="purple")
+
+    app = App()
+
+    @app.get("/result")
+    def result(request):
+        return styled_result("Found")
+
+    captured, payload = request(app, path="/result", htmx=True)
+    assert captured["status"] == "200 OK"
+    assert payload == (
+        '<div class="styled-result">Found</div>'
+        '<hx-partial id="hyperclass-styles" hx-swap="append">'
+        ".styled-result{color:purple}</hx-partial>"
+    )

@@ -209,8 +209,9 @@ class primary_button(button):
     narrow = media(max_width=40 * rem, width="100%")
 ~~~
 
-Pages collect only the rules used by their element tree. Python inheritance and
-the CSS cascade cooperate instead of imitating one another.
+Pages collect only the rules used by their element tree. Rules use the concrete
+semantic class chain as their selector, so Python inheritance and the CSS
+cascade cooperate even when new component styles arrive later.
 
 ## Classes, IDs, and names are selectors
 
@@ -327,6 +328,11 @@ htmx request sends only the fragment to swap.
 `Page(...)` controls the document explicitly. Pages include a pinned htmx 4
 asset from jsDelivr. htmx 4 `<hx-partial>` responses can update several
 object-selected regions from one request.
+
+When an htmx response introduces a component that was not present on the first
+page, Hyperclass includes its CSS in a partial targeting the page's stable
+`hyperclass-styles` stylesheet. The new fragment is styled immediately, without
+a reload or a global CSS build.
 
 ## Try the examples
 
