@@ -1,0 +1,165 @@
+"""A deliberately small WSGI application and request object."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
+from http import HTTPStatus
+from typing import Any
+from urllib.parse import parse_qs
+from wsgiref.simple_server import make_server
+
+from .html import Page, element, render
+
+Handler = Callable[["Request"], Any]
+StartResponse = Callable[[str, list[tuple[str, str]]], Any]
+
+
+class Values(Mapping[str, str]):
+    def __init__(self, values: Mapping[str, list[str]] | None = None):
+        self._values = dict(values or {})
+
+    def __getitem__(self, key: str) -> str:
+        return self._values[key][-1]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        values = self._values.get(key)
+        return values[-1] if values else default
+
+    def getlist(self, key: str) -> list[str]:
+        return list(self._values.get(key, ()))
+
+    def int(self, key: str, default: int | None = None) -> int:
+        value = self.get(key)
+        if value is None:
+            if default is not None:
+                return default
+            raise ValueError(f"missing integer form value: {key}")
+        try:
+            return int(value)
+        except ValueError as error:
+            raise ValueError(
+                f"invalid integer form value for {key}: {value!r}"
+            ) from error
+
+
+class Request:
+    def __init__(self, environ: Mapping[str, Any]):
+        self.environ = environ
+        self.method = str(environ.get("REQUEST_METHOD", "GET")).upper()
+        self.path = str(environ.get("PATH_INFO", "/"))
+        self.query = Values(
+            parse_qs(str(environ.get("QUERY_STRING", "")), keep_blank_values=True)
+        )
+        self._form: Values | None = None
+
+    @property
+    def is_htmx(self) -> bool:
+        return str(self.environ.get("HTTP_HX_REQUEST", "")).lower() == "true"
+
+    @property
+    def form(self) -> Values:
+        if self._form is None:
+            content_type = str(self.environ.get("CONTENT_TYPE", "")).split(";", 1)[0]
+            if content_type != "application/x-www-form-urlencoded":
+                self._form = Values()
+            else:
+                length = int(self.environ.get("CONTENT_LENGTH") or 0)
+                body = self.environ["wsgi.input"].read(length).decode("utf-8")
+                self._form = Values(parse_qs(body, keep_blank_values=True))
+        return self._form
+
+
+@dataclass
+class Response:
+    body: Any = ""
+    status: int = 200
+    headers: tuple[tuple[str, str], ...] = ()
+
+
+class App:
+    """A WSGI callable with exact-path method routing."""
+
+    def __init__(self, *, title: str = "Hyperclass"):
+        self.title = title
+        self.routes: dict[tuple[str, str], Handler] = {}
+
+    def route(self, path: str, *methods: str) -> Callable[[Handler], Handler]:
+        methods = methods or ("GET",)
+
+        def decorator(handler: Handler) -> Handler:
+            for method in methods:
+                self.routes[(method.upper(), path)] = handler
+            return handler
+
+        return decorator
+
+    def get(self, path: str) -> Callable[[Handler], Handler]:
+        return self.route(path, "GET")
+
+    def post(self, path: str) -> Callable[[Handler], Handler]:
+        return self.route(path, "POST")
+
+    def put(self, path: str) -> Callable[[Handler], Handler]:
+        return self.route(path, "PUT")
+
+    def patch(self, path: str) -> Callable[[Handler], Handler]:
+        return self.route(path, "PATCH")
+
+    def delete(self, path: str) -> Callable[[Handler], Handler]:
+        return self.route(path, "DELETE")
+
+    def __call__(
+        self, environ: Mapping[str, Any], start_response: StartResponse
+    ) -> list[bytes]:
+        request = Request(environ)
+        handler = self.routes.get((request.method, request.path))
+        if handler is None:
+            path_exists = any(path == request.path for _, path in self.routes)
+            status = 405 if path_exists else 404
+            return self._respond(
+                start_response, Response(HTTPStatus(status).phrase, status), request
+            )
+        try:
+            result = handler(request)
+        except ValueError as error:
+            result = Response(str(error), 400)
+        if not isinstance(result, Response):
+            result = Response(result)
+        return self._respond(start_response, result, request)
+
+    def _respond(
+        self, start_response: StartResponse, response: Response, request: Request
+    ) -> list[bytes]:
+        body = response.body
+        if isinstance(body, Page):
+            text = body.render()
+        elif isinstance(body, element):
+            text = (
+                render(body)
+                if request.is_htmx
+                else Page(body, title=self.title).render()
+            )
+        else:
+            text = str(body)
+        payload = text.encode("utf-8")
+        headers = [
+            ("Content-Type", "text/html; charset=utf-8"),
+            ("Content-Length", str(len(payload))),
+        ]
+        headers.extend(response.headers)
+        start_response(
+            f"{response.status} {HTTPStatus(response.status).phrase}", headers
+        )
+        return [payload]
+
+    def run(self, host: str = "127.0.0.1", port: int = 8000) -> None:
+        with make_server(host, port, self) as server:
+            print(f"Serving on http://{host}:{port}")
+            server.serve_forever()

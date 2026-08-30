@@ -148,6 +148,33 @@ htmx supplies browser-to-server interaction without introducing a client-side
 component runtime. Hyperclass should favor native HTML and CSS for local
 behavior and use htmx when the server needs to participate.
 
+## Pages
+
+For ordinary browser requests, returning an element wraps it in a complete page.
+For htmx requests, the same route returns only the fragment to swap. Use
+`Page` when you want to control the document explicitly:
+
+~~~python
+from hyperclass import Page
+
+return Page(counter(0), title="Counter")
+~~~
+
+Pages collect the styles used by their element tree and include pinned htmx
+4.0.0 from its CDN.
+
+## Try the counter
+
+The repository includes the example above as a runnable application:
+
+~~~console
+git clone https://github.com/grantjenks/python-hyperclass
+cd python-hyperclass
+python -m examples.counter
+~~~
+
+Then open <http://127.0.0.1:8000>.
+
 ## Principles
 
 - **Python is the authoring language.** Control flow, composition, inheritance,
@@ -165,5 +192,10 @@ behavior and use htmx when the server needs to participate.
 
 ## Status
 
-Hyperclass is currently a design exploration. The examples above describe the
-intended direction, not a released API.
+The main branch contains the first working vertical slice: HTML elements,
+semantic subclasses, inherited CSS, object selectors, htmx attributes, pages,
+request parsing, and WSGI routing. Version 0.0.2 is in development and the API
+is deliberately pre-alpha.
+
+PyPI version 0.0.1 established the package name and release pipeline; it contains
+only the initial package scaffold.
