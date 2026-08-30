@@ -10,4 +10,5 @@ bookmarks.db
 .coverage
 .venv/
 .ruff_cache/
+test-results/
 .pypirc

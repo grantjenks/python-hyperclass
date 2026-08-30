@@ -369,6 +369,24 @@ python -m hyperclass examples.counter:app
 - **Small is a feature.** Prefer the standard library, WSGI, and a pinned htmx
   asset over a framework stack.
 
+## Development
+
+Run the Python test matrix locally with:
+
+~~~console
+uvx nox -s tests
+~~~
+
+The browser contract starts the bookmark WSGI application on an ephemeral port
+and exercises add, toggle, edit, search, and delete through htmx in Chromium:
+
+~~~console
+uvx nox -s browser
+~~~
+
+Playwright is used only by that development session and is not a Hyperclass
+runtime dependency.
+
 ## Status
 
 Hyperclass is deliberately pre-alpha: useful enough to build small applications
