@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
+import re
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import MISSING, dataclass, fields, is_dataclass
 from functools import update_wrapper
 from http import HTTPStatus
-import re
-from typing import Any
+from types import UnionType
+from typing import Any, Union, get_args, get_origin, get_type_hints
 from urllib.parse import parse_qs, quote, urlencode
 from wsgiref.simple_server import make_server
 
@@ -55,7 +57,9 @@ class Route:
                 try:
                     value = int(value)
                 except (TypeError, ValueError) as error:
-                    raise TypeError(f"invalid integer route parameter: {name}") from error
+                    raise TypeError(
+                        f"invalid integer route parameter: {name}"
+                    ) from error
             return quote(str(value), safe="")
 
         path = _PARAMETER.sub(replace, self.path)
@@ -86,7 +90,9 @@ class Endpoint:
     def route(self, method: str | None = None) -> Route:
         candidates = self.routes
         if method is not None:
-            candidates = [route for route in candidates if route.method == method.upper()]
+            candidates = [
+                route for route in candidates if route.method == method.upper()
+            ]
         elif len(candidates) > 1:
             get_routes = [route for route in candidates if route.method == "GET"]
             if len(get_routes) == 1:
@@ -253,6 +259,68 @@ class Values(Mapping[str, str]):
                 f"invalid integer form value for {key}: {value!r}"
             ) from error
 
+    def bind(self, model: type[Any]) -> Any:
+        """Build a dataclass from form or query values."""
+
+        if not isinstance(model, type) or not is_dataclass(model):
+            raise TypeError("values can only bind to a dataclass type")
+        hints = get_type_hints(model)
+        values: dict[str, Any] = {}
+        for field in fields(model):
+            annotation = hints.get(field.name, field.type)
+            raw = self._values.get(field.name)
+            if raw is None:
+                if field.default is not MISSING or field.default_factory is not MISSING:
+                    continue
+                if _optional(annotation):
+                    values[field.name] = None
+                elif annotation is bool:
+                    values[field.name] = False
+                else:
+                    raise ValueError(f"missing form value: {field.name}")
+                continue
+            try:
+                values[field.name] = _convert_values(raw, annotation)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"invalid form value for {field.name}: {raw[-1]!r}"
+                ) from error
+        return model(**values)
+
+
+def _optional(annotation: Any) -> bool:
+    return get_origin(annotation) in (Union, UnionType) and type(None) in get_args(
+        annotation
+    )
+
+
+def _convert_values(values: list[str], annotation: Any) -> Any:
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+    if origin in (list, tuple):
+        item_type = arguments[0] if arguments else str
+        converted = [_convert_value(value, item_type) for value in values]
+        return converted if origin is list else tuple(converted)
+    if _optional(annotation):
+        item_type = next(value for value in arguments if value is not type(None))
+        return None if values[-1] == "" else _convert_value(values[-1], item_type)
+    return _convert_value(values[-1], annotation)
+
+
+def _convert_value(value: str, annotation: Any) -> Any:
+    if annotation in (Any, inspect.Parameter.empty, str):
+        return value
+    if annotation is bool:
+        normalized = value.lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+        raise ValueError(value)
+    if annotation in (int, float):
+        return annotation(value)
+    raise TypeError(f"unsupported form type: {annotation!r}")
+
 
 class Request:
     def __init__(self, environ: Mapping[str, Any]):
@@ -381,12 +449,28 @@ class App:
                 start_response, Response(HTTPStatus(status).phrase, status), request
             )
         try:
-            result = handler(request, **parameters)
+            result = self._call(handler, request, parameters)
         except ValueError as error:
             result = Response(str(error), 400)
         if not isinstance(result, Response):
             result = Response(result)
         return self._respond(start_response, result, request)
+
+    @staticmethod
+    def _call(
+        handler: Handler, request: Request, parameters: Mapping[str, Any]
+    ) -> Any:
+        target = getattr(handler, "handler", handler)
+        signature = inspect.signature(target)
+        hints = get_type_hints(target)
+        arguments = dict(parameters)
+        for name, parameter in signature.parameters.items():
+            if name == "request" or name in arguments:
+                continue
+            annotation = hints.get(name, parameter.annotation)
+            if isinstance(annotation, type) and is_dataclass(annotation):
+                arguments[name] = request.form.bind(annotation)
+        return handler(request, **arguments)
 
     def _respond(
         self, start_response: StartResponse, response: Response, request: Request

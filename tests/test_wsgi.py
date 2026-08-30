@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from io import BytesIO
 from urllib.parse import urlencode
 from wsgiref.util import setup_testing_defaults
@@ -200,3 +201,68 @@ def test_app_subclass_routes_can_be_inherited_and_overridden():
     captured, payload = request(Child(), method="POST", path="/save", htmx=True)
     assert captured["status"] == "200 OK"
     assert payload == "<div>saved</div>"
+
+
+def test_annotated_dataclass_is_bound_from_form_values():
+    @dataclass
+    class Entry:
+        title: str
+        priority: int = 0
+        published: bool = False
+        tags: list[str] = field(default_factory=list)
+
+    app = App()
+
+    @app.post("/entries")
+    def create(request, form: Entry):
+        return div(
+            form.title,
+            f"/{form.priority}/{form.published}/",
+            ",".join(form.tags),
+        )
+
+    captured, payload = request(
+        app,
+        "POST",
+        "/entries",
+        [
+            ("title", "Python"),
+            ("priority", "3"),
+            ("published", "on"),
+            ("tags", "web"),
+            ("tags", "wsgi"),
+        ],
+        htmx=True,
+    )
+    assert captured["status"] == "200 OK"
+    assert payload == "<div>Python/3/True/web,wsgi</div>"
+
+
+def test_dataclass_binding_uses_defaults_and_reports_bad_values():
+    @dataclass
+    class Entry:
+        title: str
+        priority: int = 7
+        published: bool = False
+
+    app = App()
+
+    @app.post("/entries")
+    def create(request, form: Entry):
+        return div(f"{form.title}/{form.priority}/{form.published}")
+
+    captured, payload = request(
+        app, "POST", "/entries", {"title": "Python"}, htmx=True
+    )
+    assert captured["status"] == "200 OK"
+    assert payload == "<div>Python/7/False</div>"
+
+    captured, payload = request(
+        app,
+        "POST",
+        "/entries",
+        {"title": "Python", "priority": "high"},
+        htmx=True,
+    )
+    assert captured["status"] == "400 Bad Request"
+    assert payload == "invalid form value for priority: 'high'"

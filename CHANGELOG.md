@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.3 — 2026-08-30
+
+- Bind submitted form values to annotated Python dataclasses.
+- Run applications with `python -m hyperclass module:app`.
+- Add live search and inline editing to the bookmark application.
+- Replace the project README with an installation-first guide.
+
 ## 0.0.2 — 2026-08-30
 
 - Render HTML elements from Python classes and semantic subclasses.

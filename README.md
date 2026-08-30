@@ -2,15 +2,26 @@
 
 > **Subclass the web.**
 
-Hyperclass is an experiment in building interactive web applications as Python
-class hierarchies.
+Hyperclass is a small experiment in building interactive web applications as
+Python class hierarchies.
 
 HTML elements are Python base classes. Python subclasses become CSS classes.
-Styles follow inheritance. Interaction is ordinary HTTP over WSGI, with htmx in
-the browser.
+Styles follow inheritance. Routes are methods. Decorated handlers are URLs.
+Interaction is ordinary HTTP over WSGI, with htmx 4 in the browser.
+
+~~~console
+pip install hyperclass
+~~~
+
+## Sixty-second tour
 
 ~~~python
-from hyperclass import css, div, grid, orange, rem
+from dataclasses import dataclass
+
+from hyperclass import (
+    App, button, css, div, form, get, grid, hx, input, outer_morph,
+    post, rem,
+)
 
 
 class card(div):
@@ -18,8 +29,65 @@ class card(div):
         display=grid,
         gap=1 * rem,
         padding=1.25 * rem,
-        border_radius=0.75 * rem,
+        border="1px solid #ddd",
+        border_radius=.75 * rem,
     )
+
+
+class guest_form(form):
+    style = css(display=grid, gap=.75 * rem)
+
+    def content(self):
+        yield input(name="name", placeholder="Your name", required=True)
+        yield button("Say hello", type="submit")
+
+
+@dataclass
+class Guest:
+    name: str
+
+
+class guestbook(App):
+    @get("/")
+    def index(self, request):
+        return card(
+            "Who are you?",
+            guest_form(
+                hx=hx.post(
+                    guestbook.create,
+                    target=card,
+                    swap=outer_morph,
+                )
+            ),
+        )
+
+    @post("/guests")
+    def create(self, request, form: Guest):
+        return card(f"Hello, {form.name}!")
+
+
+app = guestbook(title="Guestbook")
+~~~
+
+Run it:
+
+~~~console
+python -m hyperclass myapp:app
+~~~
+
+Then open <http://127.0.0.1:8000>. There is no JavaScript build, template
+language, ASGI dependency, or CSS file hidden elsewhere.
+
+## HTML classes are Python classes
+
+Every built-in element can be subclassed:
+
+~~~python
+from hyperclass import css, div, grid, orange, rem
+
+
+class card(div):
+    style = css(display=grid, gap=1 * rem, padding=1.25 * rem)
 
 
 class warning_card(card):
@@ -35,34 +103,20 @@ Calling:
 warning_card("Something happened")
 ~~~
 
-would produce ordinary, inspectable HTML:
+produces ordinary, inspectable HTML:
 
 ~~~html
 <div class="card warning-card">Something happened</div>
 ~~~
 
-The Python inheritance hierarchy and the CSS cascade cooperate instead of
-imitating one another.
+The first built-in HTML ancestor determines the tag. Each semantic subclass
+contributes a CSS class. `snake_case` becomes `kebab-case`.
 
-## The model
-
-Hyperclass treats classes and instances differently:
-
-- An element's first built-in HTML ancestor determines its tag.
-- Each semantic subclass contributes a CSS class.
-- `snake_case` class names become `kebab-case`.
-- Styles are inherited and emitted in method-resolution order.
-- Multiple inheritance composes multiple CSS classes.
-- Classes are also usable as selectors and htmx targets.
-- Instances contain attributes, state, and child content.
-- Typed route parameters turn URL segments into handler arguments.
-- htmx 4 partials can update several object-selected regions from one response.
-- `id.some_name` creates an interned Python reference for `some-name`.
-- Decorated handlers are reversible route references; URLs need not be repeated.
+Multiple inheritance composes behavior and styles:
 
 ~~~python
 class compact:
-    style = css(padding=0.5 * rem)
+    style = css(padding=.5 * rem)
 
 
 class clickable:
@@ -73,181 +127,192 @@ class result_card(card, compact, clickable):
     pass
 ~~~
 
-A `result_card` would render as:
-
 ~~~html
 <div class="card compact clickable result-card"></div>
 ~~~
 
-## Components
-
-Components are element subclasses with ordinary Python behavior:
+Components use normal Python state and methods:
 
 ~~~python
-from hyperclass import (
-    button,
-    closest,
-    form,
-    hidden,
-    hx,
-    input,
-    outer_morph,
-    output,
-)
+from hyperclass import strong
 
 
-class counter(card):
-    def __init__(self, value):
-        self.value = value
+class greeting(card):
+    def __init__(self, name):
+        self.name = name
 
     def content(self):
-        yield output(str(self.value))
-        yield form(
-            input(type=hidden, name="value", value=self.value),
-            button("+1", type="submit"),
-            hx=hx.post(
-                "/counter",
-                target=closest(counter),
-                swap=outer_morph,
-            ),
-        )
+        yield "Hello, "
+        yield strong(self.name)
 ~~~
 
-The class `counter` simultaneously represents:
+Text and attribute values are escaped by default. `markup(...)` is the explicit
+escape hatch for trusted HTML.
 
-- a Python type;
-- an HTML `<div>`;
-- the CSS selector `.counter`;
-- a reusable styled component;
-- a valid htmx target.
+## CSS is Python too
 
-## WSGI and htmx
-
-Application subclasses collect decorated method routes:
+Base styles, pseudo-states, and media rules live on the component:
 
 ~~~python
-from hyperclass import App, get, post
-
-
-class counter_app(App):
-    @get("/")
-    def index(self, request):
-        return counter(0)
-
-    @post("/counter")
-    def increment(self, request):
-        return counter(request.form.int("value") + 1)
-
-
-app = counter_app()
-if __name__ == "__main__":
-    app.run()
-~~~
-
-The application is a normal WSGI callable. The development server can use
-Python's standard library; production deployment can use any WSGI server.
-
-Decorated handlers retain their routing metadata, so application code can refer
-to Python rather than repeat URL strings:
-
-~~~python
-hx.patch(
-    increment,
-    target=closest(counter),
-    swap=outer_morph,
-)
-~~~
-
-Typed path parameters are supplied alongside htmx options. Class attributes
-make the handler available to components without a route registry:
-
-~~~python
-hx.patch(
-    bookmarks.toggle,
-    bookmark_id=bookmark.id,
-    target=closest(bookmark_card),
-)
-~~~
-
-The same endpoint exposes `.url(...)` for ordinary links and form actions. IDs
-work similarly: `id.unread_count` renders as `unread-count` in an HTML
-attribute and as `#unread-count` when used as a selector.
-
-htmx supplies browser-to-server interaction without introducing a client-side
-component runtime. Hyperclass should favor native HTML and CSS for local
-behavior and use htmx when the server needs to participate.
-
-## Pages
-
-For ordinary browser requests, returning an element wraps it in a complete page.
-For htmx requests, the same route returns only the fragment to swap. Use
-`Page` when you want to control the document explicitly:
-
-~~~python
-from hyperclass import Page
-
-return Page(counter(0), title="Counter")
-~~~
-
-Pages collect the styles used by their element tree and include pinned htmx
-4.0.0 from its CDN.
-
-## Responsive CSS and states
-
-Pseudo-states and media rules are ordinary class attributes:
-
-~~~python
-from hyperclass import css, media, rem
+from hyperclass import button, css, media, rem
 
 
 class primary_button(button):
-    style = css(background="#6d28d9", color="white")
+    style = css(
+        padding=".7rem 1rem",
+        background="#6d28d9",
+        color="white",
+        border=0,
+        border_radius=.5 * rem,
+    )
     hover = css(background="#5b21b6")
     focus_visible = css(outline="3px solid #c4b5fd")
     narrow = media(max_width=40 * rem, width="100%")
 ~~~
 
-State names translate underscores to CSS hyphens, and named media rules can use
-Python values for width, orientation, and color-scheme conditions. They follow
-the same inheritance and collection rules as base styles.
+Pages collect only the rules used by their element tree. Python inheritance and
+the CSS cascade cooperate instead of imitating one another.
+
+## Classes and IDs are selectors
+
+Classes can be used directly anywhere a selector is expected:
+
+~~~python
+hx.get(search, target=result_card)
+closest(card)
+~~~
+
+IDs are lazy, interned Python objects:
+
+~~~python
+from hyperclass import id, span
+
+span("3 unread", id=id.unread_count)
+hx.get(count, target=id.unread_count)
+
+assert id.unread_count is id.unread_count
+~~~
+
+As an HTML attribute, `id.unread_count` renders as `unread-count`. As a
+selector, it renders as `#unread-count`.
+
+## Routes are references, not strings
+
+Application subclasses collect decorated method routes:
+
+~~~python
+from hyperclass import App, get, patch
+
+
+class bookmarks(App):
+    @get("/")
+    def index(self, request):
+        return bookmark_list(...)
+
+    @patch("/bookmarks/<int:bookmark_id>")
+    def toggle(self, request, bookmark_id):
+        return bookmark_card(...)
+~~~
+
+Decorated handlers retain their route metadata:
+
+~~~python
+bookmarks.toggle.url(bookmark_id=42)
+# '/bookmarks/42'
+
+hx.patch(
+    bookmarks.toggle,
+    bookmark_id=42,
+    target=bookmark_card,
+)
+~~~
+
+Typed path parameters are converted before the handler runs. Query strings can
+be attached with `.url(query={...})` or the `query=` option on an htmx request.
+
+## Forms bind to dataclasses
+
+Annotate a route parameter with a dataclass and Hyperclass builds it from the
+submitted form:
+
+~~~python
+@dataclass
+class NewBookmark:
+    url: str
+    title: str = ""
+
+
+class bookmarks(App):
+    @post("/bookmarks")
+    def create(self, request, form: NewBookmark):
+        self.store.add(form.url, form.title)
+        return bookmark_list(...)
+~~~
+
+Binding supports strings, integers, floats, booleans, optional values, and
+lists or tuples of those values. Dataclass defaults remain defaults. Invalid or
+missing required values produce a `400 Bad Request`; application validation can
+return a more specific `Response`.
+
+The underlying values remain available as `request.form`, `request.query`,
+`.get(...)`, `.getlist(...)`, and `.int(...)` when explicit parsing is clearer.
+
+## WSGI and htmx 4
+
+A Hyperclass application is a normal WSGI callable. Use the standard-library
+development server:
+
+~~~console
+python -m hyperclass package.module:app
+python -m hyperclass package.module:app --host 0.0.0.0 --port 9000
+~~~
+
+Production can use any WSGI server. Returning an element from an ordinary
+browser request wraps it in a complete page. Returning the same element to an
+htmx request sends only the fragment to swap.
+
+`Page(...)` controls the document explicitly. Pages include a pinned htmx 4
+asset from jsDelivr. htmx 4 `<hx-partial>` responses can update several
+object-selected regions from one request.
 
 ## Try the examples
 
-The repository includes the counter and a complete SQLite bookmark inbox:
+Clone the repository and run the persistent SQLite bookmark inbox:
 
 ~~~console
 git clone https://github.com/grantjenks/python-hyperclass
 cd python-hyperclass
-python -m examples.bookmarks
+python -m hyperclass examples.bookmarks:app
 ~~~
 
-Then open <http://127.0.0.1:8000>. The bookmark app supports adding, filtering,
-marking read or unread, and deleting bookmarks. Its implementation is still only
-Python and the standard library: semantic subclasses style read and unread
-cards, routes such as `/bookmarks/<int:bookmark_id>` receive typed arguments,
-and htmx 4 `<hx-partial>` responses update a card and the unread count together.
+The bookmark app adds, searches, filters, edits, marks, and deletes bookmarks.
+Its implementation is Python plus SQLite, WSGI, generated CSS, and htmx. It is
+also a compact integration test for the framework's ideas.
 
-Use `python -m examples.counter` for the smaller introduction.
+For the smallest example:
+
+~~~console
+python -m hyperclass examples.counter:app
+~~~
 
 ## Principles
 
 - **Python is the authoring language.** Control flow, composition, inheritance,
-  and reuse are ordinary Python.
+  validation, and reuse are ordinary Python.
 - **The browser remains the browser.** Hyperclass emits standard HTML and CSS
   rather than recreating the DOM on the server.
-- **Classes mean classes.** Python inheritance has a visible, predictable
-  relationship to HTML classes and the CSS cascade.
+- **Classes mean classes.** Python inheritance has a visible relationship to
+  HTML classes and the CSS cascade.
 - **HTTP is the state boundary.** There is no hydration protocol or hidden
   client component lifecycle.
-- **Output should be boring.** Generated markup remains readable in View Source
+- **Output should be boring.** Generated markup stays readable in View Source
   and DevTools.
 - **Small is a feature.** Prefer the standard library, WSGI, and a pinned htmx
-  asset over a large framework stack.
+  asset over a framework stack.
 
 ## Status
 
-Version 0.0.2 is the first working vertical slice: HTML elements, semantic
-subclasses, inherited and responsive CSS, object and ID selectors, htmx
-attributes and partials, pages, request parsing, reversible typed WSGI routing,
-class-based applications, and a persistent example application. The API remains
-deliberately pre-alpha.
+Hyperclass is deliberately pre-alpha: useful enough to build small applications
+and young enough for its API to change. Python 3.10 through 3.14 are tested.
+
+Apache-2.0 licensed.

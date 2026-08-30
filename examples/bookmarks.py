@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import os
 from pathlib import Path
-import sqlite3
 from urllib.parse import urlsplit
 
 from hyperclass import (
@@ -18,10 +18,10 @@ from hyperclass import (
     button,
     closest,
     css,
+    delete_route,
     div,
     footer,
     form,
-    fragment,
     get,
     h1,
     h2,
@@ -31,19 +31,17 @@ from hyperclass import (
     input,
     label,
     main,
-    markup,
     media,
     outer_morph,
     p,
-    partial,
     patch,
     post,
+    put,
     rem,
     section,
     small,
     span,
 )
-from hyperclass import delete_route
 
 
 @dataclass(frozen=True)
@@ -53,6 +51,18 @@ class Bookmark:
     title: str
     is_read: bool
     created_at: str
+
+
+@dataclass(frozen=True)
+class NewBookmark:
+    url: str
+    title: str = ""
+
+
+@dataclass(frozen=True)
+class EditedBookmark:
+    url: str
+    title: str = ""
 
 
 class BookmarkStore:
@@ -86,12 +96,17 @@ class BookmarkStore:
             row["created_at"],
         )
 
-    def add(self, url: str, title: str = "") -> Bookmark:
+    @staticmethod
+    def _clean(url: str, title: str = "") -> tuple[str, str]:
         parsed = urlsplit(url.strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("Enter a full http:// or https:// URL.")
         url = parsed.geturl()
         title = title.strip() or parsed.hostname or url
+        return url, title
+
+    def add(self, url: str, title: str = "") -> Bookmark:
+        url, title = self._clean(url, title)
         created_at = datetime.now(timezone.utc).isoformat()
         with self.connect() as connection:
             cursor = connection.execute(
@@ -100,6 +115,17 @@ class BookmarkStore:
             )
             bookmark_id = cursor.lastrowid
         return self.get(int(bookmark_id))
+
+    def update(self, bookmark_id: int, url: str, title: str = "") -> Bookmark:
+        url, title = self._clean(url, title)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE bookmarks SET url = ?, title = ? WHERE id = ?",
+                (url, title, bookmark_id),
+            )
+        if cursor.rowcount == 0:
+            raise LookupError(bookmark_id)
+        return self.get(bookmark_id)
 
     def get(self, bookmark_id: int) -> Bookmark:
         with self.connect() as connection:
@@ -110,15 +136,20 @@ class BookmarkStore:
             raise LookupError(bookmark_id)
         return self._bookmark(row)
 
-    def list(self, state: str = "all") -> list[Bookmark]:
-        where = {
-            "all": "",
-            "unread": "WHERE is_read = 0",
-            "read": "WHERE is_read = 1",
-        }.get(state, "")
+    def list(self, state: str = "all", query: str = "") -> list[Bookmark]:
+        clauses: list[str] = []
+        parameters: list[str] = []
+        if state == "unread":
+            clauses.append("is_read = 0")
+        elif state == "read":
+            clauses.append("is_read = 1")
+        if query := query.strip():
+            clauses.append("(title LIKE ? OR url LIKE ?)")
+            parameters.extend((f"%{query}%", f"%{query}%"))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self.connect() as connection:
             rows = connection.execute(
-                f"SELECT * FROM bookmarks {where} ORDER BY id DESC"
+                f"SELECT * FROM bookmarks {where} ORDER BY id DESC", parameters
             ).fetchall()
         return [self._bookmark(row) for row in rows]
 
@@ -260,6 +291,14 @@ class bookmark_toolbar(div):
     )
 
 
+class search_form(form):
+    style = css(flex="1 1 14rem", max_width=22 * rem)
+
+
+class search_field(text_field):
+    ...
+
+
 class filters(div):
     style = css(display="flex", gap=.5 * rem, flex_wrap="wrap")
 
@@ -293,6 +332,10 @@ class bookmark_list(section):
     style = css(display="grid", gap=.75 * rem)
 
 
+class bookmark_results(section):
+    pass
+
+
 class bookmark_card(article):
     style = css(
         display="grid",
@@ -307,11 +350,18 @@ class bookmark_card(article):
     )
     narrow = media(max_width=40 * rem, grid_template_columns="minmax(0, 1fr)")
 
-    def __init__(self, bookmark: Bookmark):
+    def __init__(self, bookmark: Bookmark, state: str = "all", query: str = ""):
         self.bookmark = bookmark
+        self.state = state
+        self.query = query
 
     def content(self):
         bookmark = self.bookmark
+        context = {}
+        if self.state != "all":
+            context["filter"] = self.state
+        if self.query:
+            context["q"] = self.query
         yield bookmark_copy(
             bookmark_title(
                 bookmark_link(
@@ -330,6 +380,17 @@ class bookmark_card(article):
                 hx=hx.patch(
                     bookmarks.toggle,
                     bookmark_id=bookmark.id,
+                    query=context,
+                    target=id.bookmark_results,
+                    swap=outer_morph,
+                ),
+            ),
+            action_button(
+                "Edit",
+                type="button",
+                hx=hx.get(
+                    bookmarks.edit,
+                    bookmark_id=bookmark.id,
                     target=closest(bookmark_card),
                     swap=outer_morph,
                 ),
@@ -340,8 +401,9 @@ class bookmark_card(article):
                 hx=hx.delete(
                     bookmarks.delete,
                     bookmark_id=bookmark.id,
-                    target=closest(bookmark_card),
-                    swap="delete",
+                    query=context,
+                    target=id.bookmark_results,
+                    swap=outer_morph,
                     confirm="Delete this bookmark?",
                 ),
             ),
@@ -421,9 +483,18 @@ class empty_state(p):
     )
 
 
-def bookmark_view(bookmark: Bookmark):
+class bookmark_editor(form):
+    style = bookmark_card.style
+    narrow = bookmark_card.narrow
+
+
+class editor_fields(div):
+    style = css(display="grid", gap=.6 * rem)
+
+
+def bookmark_view(bookmark: Bookmark, state: str = "all", query: str = ""):
     kind = read_bookmark if bookmark.is_read else unread_bookmark
-    return kind(bookmark)
+    return kind(bookmark, state, query)
 
 
 def count_view(store: BookmarkStore):
@@ -433,15 +504,112 @@ def count_view(store: BookmarkStore):
 
 
 def list_view(
-    store: BookmarkStore, state: str = "all"
+    store: BookmarkStore, state: str = "all", query: str = ""
 ):
-    bookmarks = store.list(state)
+    bookmarks = store.list(state, query)
     children = (
-        [bookmark_view(bookmark) for bookmark in bookmarks]
+        [bookmark_view(bookmark, state, query) for bookmark in bookmarks]
         if bookmarks
-        else [empty_state(f"No {state if state != 'all' else ''} bookmarks yet.")]
+        else [
+            empty_state(
+                f'No bookmarks matching "{query}".'
+                if query
+                else (
+                    f"No {state} bookmarks yet."
+                    if state != "all"
+                    else "No bookmarks yet."
+                )
+            )
+        ]
     )
     return bookmark_list(*children, id=id.bookmark_list)
+
+
+def results_view(store: BookmarkStore, state: str = "all", query: str = ""):
+    query_values = {"filter": state}
+    if query:
+        query_values["q"] = query
+    return bookmark_results(
+        bookmark_toolbar(
+            search_form(
+                search_field(
+                    name="q",
+                    type="search",
+                    value=query,
+                    placeholder="Search bookmarks",
+                    aria_label="Search bookmarks",
+                ),
+                input(type="hidden", name="filter", value=state),
+                hx=hx.get(
+                    bookmarks.listing,
+                    target=id.bookmark_results,
+                    swap=outer_morph,
+                    trigger="input changed delay:250ms, search",
+                ),
+            ),
+            filters(
+                *(
+                    filter_link(
+                        name.title(),
+                        href=bookmarks.listing.url(
+                            query={**query_values, "filter": name}
+                        ),
+                        hx=hx.get(
+                            bookmarks.listing,
+                            query={**query_values, "filter": name},
+                            target=id.bookmark_results,
+                            swap=outer_morph,
+                        ),
+                    )
+                    for name in ("all", "unread", "read")
+                )
+            ),
+            count_view(store),
+        ),
+        list_view(store, state, query),
+        id=id.bookmark_results,
+    )
+
+
+def edit_view(bookmark: Bookmark, error: str = ""):
+    children = [
+        editor_fields(
+            field_label(
+                "URL",
+                text_field(name="url", type="url", value=bookmark.url, required=True),
+            ),
+            field_label(
+                "Title",
+                text_field(name="title", value=bookmark.title),
+            ),
+        ),
+        card_actions(
+            primary_button("Save", type="submit"),
+            action_button(
+                "Cancel",
+                type="button",
+                hx=hx.get(
+                    bookmarks.show,
+                    bookmark_id=bookmark.id,
+                    target=closest(bookmark_editor),
+                    swap=outer_morph,
+                ),
+            ),
+        ),
+    ]
+    if error:
+        children.append(error_message(error, role="alert"))
+    return bookmark_editor(
+        *children,
+        method="post",
+        action=bookmarks.update.url(bookmark_id=bookmark.id),
+        hx=hx.put(
+            bookmarks.update,
+            bookmark_id=bookmark.id,
+            target=closest(bookmark_editor),
+            swap=outer_morph,
+        ),
+    )
 
 
 def form_view(error: str = ""):
@@ -481,25 +649,7 @@ def app_view(store: BookmarkStore, error: str = ""):
             p("Save now. Read when the tab situation is less dramatic."),
         ),
         form_view(error),
-        bookmark_toolbar(
-            filters(
-                *(
-                    filter_link(
-                        name.title(),
-                        href=bookmarks.listing.url(query={"filter": name}),
-                        hx=hx.get(
-                            bookmarks.listing,
-                            query={"filter": name},
-                            target=bookmark_list,
-                            swap=outer_morph,
-                        ),
-                    )
-                    for name in ("all", "unread", "read")
-                )
-            ),
-            count_view(store),
-        ),
-        list_view(store),
+        results_view(store),
         footer(small("Python · SQLite · WSGI · htmx 4")),
     )
 
@@ -514,11 +664,9 @@ class bookmarks(App):
         return app_view(self.store)
 
     @post("/bookmarks")
-    def create(self, request):
+    def create(self, request, form: NewBookmark):
         try:
-            self.store.add(
-                request.form.get("url", ""), request.form.get("title", "")
-            )
+            self.store.add(form.url, form.title)
         except ValueError as error:
             return Response(app_view(self.store, str(error)), 422)
         return app_view(self.store)
@@ -526,22 +674,52 @@ class bookmarks(App):
     @get("/bookmarks")
     def listing(self, request):
         state = request.query.get("filter", "all")
-        return list_view(
+        return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
+            request.query.get("q", ""),
         )
+
+    @get("/bookmarks/<int:bookmark_id>")
+    def show(self, request, bookmark_id):
+        try:
+            return bookmark_view(self.store.get(bookmark_id))
+        except LookupError:
+            return Response("Bookmark not found", 404)
+
+    @get("/bookmarks/<int:bookmark_id>/edit")
+    def edit(self, request, bookmark_id):
+        try:
+            return edit_view(self.store.get(bookmark_id))
+        except LookupError:
+            return Response("Bookmark not found", 404)
+
+    @put("/bookmarks/<int:bookmark_id>")
+    def update(self, request, bookmark_id, form: EditedBookmark):
+        try:
+            return bookmark_view(
+                self.store.update(bookmark_id, form.url, form.title)
+            )
+        except ValueError as error:
+            try:
+                bookmark = self.store.get(bookmark_id)
+            except LookupError:
+                return Response("Bookmark not found", 404)
+            return Response(edit_view(bookmark, str(error)), 422)
+        except LookupError:
+            return Response("Bookmark not found", 404)
 
     @patch("/bookmarks/<int:bookmark_id>")
     def toggle(self, request, bookmark_id):
         try:
-            bookmark = self.store.toggle(bookmark_id)
+            self.store.toggle(bookmark_id)
         except LookupError:
             return Response("Bookmark not found", 404)
-        return fragment(
-            bookmark_view(bookmark),
-            partial(
-                count_view(self.store), id=id.unread_count, hx_swap=outer_morph
-            ),
+        state = request.query.get("filter", "all")
+        return results_view(
+            self.store,
+            state if state in {"all", "unread", "read"} else "all",
+            request.query.get("q", ""),
         )
 
     @delete_route("/bookmarks/<int:bookmark_id>")
@@ -550,11 +728,11 @@ class bookmarks(App):
             self.store.delete(bookmark_id)
         except LookupError:
             return Response("Bookmark not found", 404)
-        return fragment(
-            markup("<!-- bookmark deleted -->"),
-            partial(
-                count_view(self.store), id=id.unread_count, hx_swap=outer_morph
-            ),
+        state = request.query.get("filter", "all")
+        return results_view(
+            self.store,
+            state if state in {"all", "unread", "read"} else "all",
+            request.query.get("q", ""),
         )
 
 

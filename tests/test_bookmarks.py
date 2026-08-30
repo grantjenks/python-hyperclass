@@ -63,7 +63,7 @@ def test_bookmark_lifecycle(tmp_path):
     )
     assert captured["status"] == "200 OK"
     assert "read-bookmark" in payload
-    assert '<hx-partial id="unread-count" hx-swap="outerMorph">' in payload
+    assert 'id="bookmark-results"' in payload
     assert "0 unread bookmarks" in payload
     assert app.store.get(bookmark.id).is_read
 
@@ -75,8 +75,7 @@ def test_bookmark_lifecycle(tmp_path):
         app, "DELETE", f"/bookmarks/{bookmark.id}", htmx=True
     )
     assert captured["status"] == "200 OK"
-    assert "bookmark deleted" in payload
-    assert "<hx-partial" in payload
+    assert "No bookmarks yet." in payload
     assert app.store.list() == []
 
 
@@ -96,3 +95,65 @@ def test_missing_bookmark_is_not_found(tmp_path):
     captured, payload = request(app, "PATCH", "/bookmarks/999", htmx=True)
     assert captured["status"] == "404 Not Found"
     assert payload == "Bookmark not found"
+
+
+def test_live_search_and_filter_context(tmp_path):
+    app = create_app(tmp_path / "bookmarks.db")
+    app.store.add("https://python.org", "Python")
+    app.store.add("https://htmx.org", "htmx")
+
+    captured, payload = request(app, path="/bookmarks?q=python", htmx=True)
+    assert captured["status"] == "200 OK"
+    assert "Python" in payload
+    assert ">htmx</a>" not in payload
+    assert 'value="python"' in payload
+    assert 'hx-trigger="input changed delay:250ms, search"' in payload
+
+    captured, payload = request(
+        app, path="/bookmarks?filter=unread&q=python", htmx=True
+    )
+    assert 'hx-patch="/bookmarks/1?filter=unread&amp;q=python"' in payload
+
+    captured, payload = request(
+        app,
+        "PATCH",
+        "/bookmarks/1?filter=unread&q=python",
+        htmx=True,
+    )
+    assert captured["status"] == "200 OK"
+    assert "No bookmarks matching &quot;python&quot;." in payload
+
+
+def test_inline_edit_uses_typed_form_binding(tmp_path):
+    app = create_app(tmp_path / "bookmarks.db")
+    bookmark = app.store.add("https://example.com/old", "Old title")
+
+    captured, payload = request(
+        app, path=f"/bookmarks/{bookmark.id}/edit", htmx=True
+    )
+    assert captured["status"] == "200 OK"
+    assert '<form class="bookmark-editor"' in payload
+    assert 'value="Old title"' in payload
+    assert f'hx-put="/bookmarks/{bookmark.id}"' in payload
+
+    captured, payload = request(
+        app,
+        "PUT",
+        f"/bookmarks/{bookmark.id}",
+        {"url": "https://example.com/new", "title": "New title"},
+        htmx=True,
+    )
+    assert captured["status"] == "200 OK"
+    assert "New title" in payload
+    assert app.store.get(bookmark.id).url == "https://example.com/new"
+
+    captured, payload = request(
+        app,
+        "PUT",
+        f"/bookmarks/{bookmark.id}",
+        {"url": "not a url", "title": "Nope"},
+        htmx=True,
+    )
+    assert captured["status"].startswith("422 ")
+    assert "Enter a full http:// or https:// URL." in payload
+    assert '<form class="bookmark-editor"' in payload
