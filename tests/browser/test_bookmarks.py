@@ -37,7 +37,9 @@ def test_bookmark_lifecycle_in_a_browser(page: Page, tmp_path):
     with serve(app) as base_url:
         response = page.goto(base_url)
         assert response is not None and response.ok
-        expect(page.get_by_heading("Bookmark inbox")).to_be_visible()
+        expect(
+            page.get_by_role("heading", name="Bookmark inbox", exact=True)
+        ).to_be_visible()
         expect(page.get_by_text("No bookmarks yet.", exact=True)).to_be_visible()
 
         stylesheet = page.locator("#hyperclass-styles")
