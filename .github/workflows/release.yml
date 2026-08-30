@@ -28,7 +28,7 @@ jobs:
           check-latest: true
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.2.0
 
       - name: Install build backend
         run: uvx --from build pyproject-build --version
@@ -47,7 +47,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          test "$(tr -d '[:space:]' < RELEASE)" = "$version"
+          test "$(head -1 RELEASE | tr -d '[:space:]')" = "$version"
           gh release create "v$version" \
             --target "$GITHUB_SHA" \
             --title "Hyperclass $version" \
