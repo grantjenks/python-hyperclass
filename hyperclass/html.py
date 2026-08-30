@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import Any
 
-from .css import Style
+from .css import Media, PSEUDO_STATES, Style
 
 HTMX_SRC = "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0"
 HTMX_INTEGRITY = (
@@ -145,16 +145,28 @@ class RenderContext:
     def register(self, value: type) -> None:
         if value in self._seen_styles:
             return
-        style = value.__dict__.get("style")
-        if isinstance(style, Style):
+        if any(
+            isinstance(rule, (Style, Media))
+            for rule in value.__dict__.values()
+        ):
             self._seen_styles.add(value)
             self.styled_classes.append(value)
 
     def stylesheet(self) -> str:
-        return "".join(
-            f".{class_name(value)}{{{value.__dict__['style'].render()}}}"
-            for value in self.styled_classes
-        )
+        rules: list[str] = []
+        for value in self.styled_classes:
+            base = f".{class_name(value)}"
+            for name, rule in value.__dict__.items():
+                if name == "style" and isinstance(rule, Style):
+                    rules.append(f"{base}{{{rule.render()}}}")
+                elif name in PSEUDO_STATES and isinstance(rule, Style):
+                    state = name.replace("_", "-")
+                    rules.append(f"{base}:{state}{{{rule.render()}}}")
+                elif isinstance(rule, Media):
+                    rules.append(
+                        f"@media {rule.query()}{{{base}{{{rule.style.render()}}}}}"
+                    )
+        return "".join(rules)
 
 
 def _attribute_name(name: str) -> str:

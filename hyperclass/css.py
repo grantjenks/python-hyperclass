@@ -89,6 +89,58 @@ def css(**declarations: Any) -> Style:
     return Style(**declarations)
 
 
+@dataclass(frozen=True)
+class Media:
+    """A stylesheet rule guarded by a CSS media query."""
+
+    conditions: tuple[tuple[str, Any], ...]
+    style: Style
+
+    def query(self) -> str:
+        return " and ".join(
+            f"({name.replace('_', '-')}:{css_value(value)})"
+            for name, value in self.conditions
+        )
+
+
+def media(
+    *,
+    min_width: Any = None,
+    max_width: Any = None,
+    orientation: str | None = None,
+    prefers_color_scheme: str | None = None,
+    **declarations: Any,
+) -> Media:
+    """Create a media rule with Python-named conditions and declarations."""
+
+    conditions = tuple(
+        (name, value)
+        for name, value in (
+            ("min_width", min_width),
+            ("max_width", max_width),
+            ("orientation", orientation),
+            ("prefers_color_scheme", prefers_color_scheme),
+        )
+        if value is not None
+    )
+    if not conditions:
+        raise ValueError("media requires at least one condition")
+    return Media(conditions, css(**declarations))
+
+
+PSEUDO_STATES = {
+    "active",
+    "checked",
+    "disabled",
+    "focus",
+    "focus_visible",
+    "focus_within",
+    "hover",
+    "invalid",
+    "visited",
+}
+
+
 px = Unit("px")
 rem = Unit("rem")
 em = Unit("em")

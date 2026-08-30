@@ -123,24 +123,23 @@ The class `counter` simultaneously represents:
 
 ## WSGI and htmx
 
-Routes return elements directly:
+Application subclasses collect decorated method routes:
 
 ~~~python
-from hyperclass import App
-
-app = App()
+from hyperclass import App, get, post
 
 
-@app.get("/")
-def index(request):
-    return counter(0)
+class counter_app(App):
+    @get("/")
+    def index(self, request):
+        return counter(0)
+
+    @post("/counter")
+    def increment(self, request):
+        return counter(request.form.int("value") + 1)
 
 
-@app.post("/counter")
-def increment(request):
-    return counter(request.form.int("value") + 1)
-
-
+app = counter_app()
 if __name__ == "__main__":
     app.run()
 ~~~
@@ -159,10 +158,15 @@ hx.patch(
 )
 ~~~
 
-Typed path parameters are supplied alongside htmx options:
+Typed path parameters are supplied alongside htmx options. Class attributes
+make the handler available to components without a route registry:
 
 ~~~python
-hx.patch(toggle, bookmark_id=bookmark.id, target=closest(bookmark_card))
+hx.patch(
+    bookmarks.toggle,
+    bookmark_id=bookmark.id,
+    target=closest(bookmark_card),
+)
 ~~~
 
 The same endpoint exposes `.url(...)` for ordinary links and form actions. IDs
@@ -187,6 +191,25 @@ return Page(counter(0), title="Counter")
 
 Pages collect the styles used by their element tree and include pinned htmx
 4.0.0 from its CDN.
+
+## Responsive CSS and states
+
+Pseudo-states and media rules are ordinary class attributes:
+
+~~~python
+from hyperclass import css, media, rem
+
+
+class primary_button(button):
+    style = css(background="#6d28d9", color="white")
+    hover = css(background="#5b21b6")
+    focus_visible = css(outline="3px solid #c4b5fd")
+    narrow = media(max_width=40 * rem, width="100%")
+~~~
+
+State names translate underscores to CSS hyphens, and named media rules can use
+Python values for width, orientation, and color-scheme conditions. They follow
+the same inheritance and collection rules as base styles.
 
 ## Try the examples
 
@@ -223,11 +246,8 @@ Use `python -m examples.counter` for the smaller introduction.
 
 ## Status
 
-The main branch contains the first working vertical slice: HTML elements,
-semantic subclasses, inherited CSS, object and ID selectors, htmx attributes and
-partials, pages, request parsing, reversible typed WSGI routing, and a persistent
-example application. Version 0.0.2 is in development and the API
-is deliberately pre-alpha.
-
-PyPI version 0.0.1 established the package name and release pipeline; it contains
-only the initial package scaffold.
+Version 0.0.2 is the first working vertical slice: HTML elements, semantic
+subclasses, inherited and responsive CSS, object and ID selectors, htmx
+attributes and partials, pages, request parsing, reversible typed WSGI routing,
+class-based applications, and a persistent example application. The API remains
+deliberately pre-alpha.

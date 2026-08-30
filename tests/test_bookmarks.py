@@ -38,6 +38,11 @@ def test_bookmark_lifecycle(tmp_path):
     assert payload.startswith("<!doctype html>")
     assert "Bookmark inbox" in payload
     assert "0 unread bookmarks" in payload
+    assert 'content="width=device-width, initial-scale=1"' in payload
+    assert (
+        "@media (max-width:40rem){.bookmark-form{grid-template-columns:1fr}}"
+        in payload
+    )
 
     captured, payload = request(
         app,
@@ -50,6 +55,7 @@ def test_bookmark_lifecycle(tmp_path):
     assert "<!doctype html>" not in payload
     assert "Read this" in payload
     assert "1 unread bookmark" in payload
+    assert 'hx-patch="/bookmarks/1"' in payload
     bookmark = app.store.list()[0]
 
     captured, payload = request(

@@ -8,11 +8,14 @@ from hyperclass import (
     closest,
     div,
     form,
+    get,
     hidden,
     hx,
     input,
     outer_morph,
     output,
+    patch,
+    post,
     render,
 )
 
@@ -152,3 +155,48 @@ def test_route_reference_supports_query_parameters_and_html_attributes():
 
     assert items.url(query={"filter": "unread"}) == "/items?filter=unread"
     assert render(form(action=items)) == '<form action="/items"></form>'
+
+
+def test_app_subclass_collects_method_routes_and_binds_state():
+    class Items(App):
+        def __init__(self):
+            self.values = {7: "seven"}
+            super().__init__(title="Items")
+
+        @get("/")
+        def index(self, request):
+            return div("items")
+
+        @patch("/items/<int:item_id>")
+        def update(self, request, item_id):
+            return div(self.values[item_id])
+
+    app = Items()
+    captured, payload = request(app, method="PATCH", path="/items/7", htmx=True)
+    assert captured["status"] == "200 OK"
+    assert payload == "<div>seven</div>"
+    assert Items.update.url(item_id=7) == "/items/7"
+    assert app.update.url(item_id=7) == "/items/7"
+
+
+def test_app_subclass_routes_can_be_inherited_and_overridden():
+    class Base(App):
+        @get("/")
+        def index(self, request):
+            return div("base")
+
+        @post("/save")
+        def save(self, request):
+            return div("saved")
+
+    class Child(Base):
+        @get("/")
+        def index(self, request):
+            return div("child")
+
+    captured, payload = request(Child(), htmx=True)
+    assert captured["status"] == "200 OK"
+    assert payload == "<div>child</div>"
+    captured, payload = request(Child(), method="POST", path="/save", htmx=True)
+    assert captured["status"] == "200 OK"
+    assert payload == "<div>saved</div>"

@@ -5,6 +5,7 @@ from hyperclass import (
     css,
     div,
     form,
+    get,
     grid,
     hidden,
     hx,
@@ -12,6 +13,7 @@ from hyperclass import (
     orange,
     outer_morph,
     output,
+    post,
     rem,
 )
 
@@ -41,24 +43,24 @@ class counter(card):
             input(type=hidden, name="value", value=self.value),
             button("+1", type="submit"),
             hx=hx.post(
-                "/counter",
+                counter_app.increment,
                 target=closest(counter),
                 swap=outer_morph,
             ),
         )
 
 
-app = App(title="Hyperclass Counter")
+class counter_app(App):
+    @get("/")
+    def index(self, request):
+        return counter(0)
+
+    @post("/counter")
+    def increment(self, request):
+        return counter(request.form.int("value") + 1)
 
 
-@app.get("/")
-def index(request):
-    return counter(0)
-
-
-@app.post("/counter")
-def increment(request):
-    return counter(request.form.int("value") + 1)
+app = counter_app(title="Hyperclass Counter")
 
 
 if __name__ == "__main__":

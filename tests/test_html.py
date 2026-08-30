@@ -5,6 +5,7 @@ from hyperclass import (
     fragment,
     grid,
     id,
+    media,
     orange,
     outer_morph,
     partial,
@@ -88,4 +89,21 @@ def test_ids_are_lazy_interned_python_references():
     assert selector(id.unread_count) == "#unread-count"
     assert render(span("3", id=id.unread_count)) == (
         '<span id="unread-count">3</span>'
+    )
+
+
+def test_page_collects_state_and_media_styles_from_classes():
+    class interactive_card(card):
+        hover = css(background="lavender")
+        focus_visible = css(outline="2px solid purple")
+        narrow = media(max_width=40 * rem, grid_template_columns="1fr")
+
+    document = Page(interactive_card()).render()
+    assert ".interactive-card:hover{background:lavender}" in document
+    assert (
+        ".interactive-card:focus-visible{outline:2px solid purple}" in document
+    )
+    assert (
+        "@media (max-width:40rem){.interactive-card{grid-template-columns:1fr}}"
+        in document
     )

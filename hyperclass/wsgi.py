@@ -78,6 +78,11 @@ class Endpoint:
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.handler(*args, **kwargs)
 
+    def __get__(self, instance: Any, owner: type | None = None) -> Any:
+        if instance is None:
+            return self
+        return BoundEndpoint(self, instance)
+
     def route(self, method: str | None = None) -> Route:
         candidates = self.routes
         if method is not None:
@@ -111,6 +116,50 @@ class Endpoint:
         return self.url()
 
 
+class BoundEndpoint:
+    """An endpoint whose handler is bound to an application instance."""
+
+    def __init__(self, endpoint: Endpoint, instance: Any):
+        self.endpoint = endpoint
+        self.instance = instance
+
+    @property
+    def handler(self) -> Handler:
+        return self.endpoint.handler.__get__(self.instance, type(self.instance))
+
+    @property
+    def routes(self) -> list[Route]:
+        return self.endpoint.routes
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.handler(*args, **kwargs)
+
+    def route(self, method: str | None = None) -> Route:
+        return self.endpoint.route(method)
+
+    def parameters(self, method: str | None = None) -> tuple[str, ...]:
+        return self.endpoint.parameters(method)
+
+    @property
+    def path(self) -> str:
+        return self.endpoint.path
+
+    def url(
+        self,
+        *,
+        method: str | None = None,
+        query: Mapping[str, Any] | None = None,
+        **parameters: Any,
+    ) -> str:
+        return self.endpoint.url(method=method, query=query, **parameters)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.endpoint, name)
+
+    def __str__(self) -> str:
+        return str(self.endpoint)
+
+
 _PARAMETER = re.compile(r"<(?:(int|str):)?([A-Za-z_]\w*)>")
 
 
@@ -132,6 +181,43 @@ def _compile_path(path: str) -> tuple[re.Pattern[str], dict[str, Callable]]:
         position = parameter.end()
     pieces.append(re.escape(path[position:]))
     return re.compile("".join(pieces)), converters
+
+
+def route(path: str, *methods: str) -> Callable[[Handler], Endpoint]:
+    """Declare one or more routes on an application method."""
+
+    methods = methods or ("GET",)
+
+    def decorator(handler: Handler) -> Endpoint:
+        endpoint = handler if isinstance(handler, Endpoint) else Endpoint(handler)
+        for method in methods:
+            pattern, converters = _compile_path(path)
+            endpoint.routes.append(
+                Route(method.upper(), path, pattern, converters, endpoint)
+            )
+        return endpoint
+
+    return decorator
+
+
+def get(path: str) -> Callable[[Handler], Endpoint]:
+    return route(path, "GET")
+
+
+def post(path: str) -> Callable[[Handler], Endpoint]:
+    return route(path, "POST")
+
+
+def put(path: str) -> Callable[[Handler], Endpoint]:
+    return route(path, "PUT")
+
+
+def patch(path: str) -> Callable[[Handler], Endpoint]:
+    return route(path, "PATCH")
+
+
+def delete(path: str) -> Callable[[Handler], Endpoint]:
+    return route(path, "DELETE")
 
 
 class Values(Mapping[str, str]):
@@ -209,32 +295,50 @@ class App:
         self.title = title
         self.routes: dict[tuple[str, str], Handler] = {}
         self.dynamic_routes: list[Route] = []
+        for name, endpoint in self._class_endpoints().items():
+            bound = endpoint.__get__(self, type(self))
+            for declared in endpoint.routes:
+                self._register_route(declared, bound)
+
+    @classmethod
+    def _class_endpoints(cls) -> dict[str, Endpoint]:
+        endpoints: dict[str, Endpoint] = {}
+        for base in reversed(cls.__mro__):
+            for name, value in base.__dict__.items():
+                if isinstance(value, Endpoint):
+                    endpoints[name] = value
+                elif name in endpoints:
+                    del endpoints[name]
+        return endpoints
+
+    def _register_route(self, declared: Route, handler: Handler) -> None:
+        registered = Route(
+            declared.method,
+            declared.path,
+            declared.pattern,
+            declared.converters,
+            handler,
+        )
+        if declared.parameters:
+            self.dynamic_routes = [
+                route
+                for route in self.dynamic_routes
+                if (route.method, route.path)
+                != (registered.method, registered.path)
+            ]
+            self.dynamic_routes.append(registered)
+        else:
+            self.routes[(registered.method, registered.path)] = handler
 
     def route(self, path: str, *methods: str) -> Callable[[Handler], Endpoint]:
         methods = methods or ("GET",)
 
         def decorator(handler: Handler) -> Endpoint:
             endpoint = handler if isinstance(handler, Endpoint) else Endpoint(handler)
-            for method in methods:
-                normalized_method = method.upper()
-                pattern, converters = _compile_path(path)
-                route = Route(
-                    normalized_method,
-                    path,
-                    pattern,
-                    converters,
-                    endpoint,
-                )
-                endpoint.routes.append(route)
-                if _PARAMETER.search(path):
-                    self.dynamic_routes = [
-                        route
-                        for route in self.dynamic_routes
-                        if (route.method, route.path) != (normalized_method, path)
-                    ]
-                    self.dynamic_routes.append(route)
-                else:
-                    self.routes[(normalized_method, path)] = endpoint
+            first = len(endpoint.routes)
+            endpoint = route(path, *methods)(endpoint)
+            for declared in endpoint.routes[first:]:
+                self._register_route(declared, endpoint)
             return endpoint
 
         return decorator

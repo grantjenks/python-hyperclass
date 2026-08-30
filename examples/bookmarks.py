@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 
 from hyperclass import (
     App,
-    Endpoint,
     Response,
     a,
     article,
@@ -23,6 +22,7 @@ from hyperclass import (
     footer,
     form,
     fragment,
+    get,
     h1,
     h2,
     header,
@@ -32,14 +32,18 @@ from hyperclass import (
     label,
     main,
     markup,
+    media,
     outer_morph,
     p,
     partial,
+    patch,
+    post,
     rem,
     section,
     small,
     span,
 )
+from hyperclass import delete_route
 
 
 @dataclass(frozen=True)
@@ -49,14 +53,6 @@ class Bookmark:
     title: str
     is_read: bool
     created_at: str
-
-
-@dataclass(frozen=True)
-class BookmarkRoutes:
-    create: Endpoint
-    bookmarks: Endpoint
-    toggle: Endpoint
-    delete: Endpoint
 
 
 class BookmarkStore:
@@ -160,10 +156,16 @@ class bookmark_app(main):
         font_family="ui-sans-serif, system-ui, sans-serif",
         color="#172033",
     )
+    narrow = media(
+        max_width=40 * rem,
+        margin="1.25rem auto",
+        padding="0 .75rem",
+    )
 
 
 class app_header(header):
     style = css(margin_bottom=2 * rem)
+    narrow = media(max_width=40 * rem, margin_bottom=1.25 * rem)
 
 
 class eyebrow(p):
@@ -180,7 +182,7 @@ class eyebrow(p):
 class bookmark_form(form):
     style = css(
         display="grid",
-        grid_template_columns="2fr 1fr auto",
+        grid_template_columns="minmax(0, 2fr) minmax(0, 1fr) auto",
         gap=.75 * rem,
         padding=1 * rem,
         background="#f5f3ff",
@@ -188,10 +190,17 @@ class bookmark_form(form):
         border_radius=.9 * rem,
         margin_bottom=1.25 * rem,
     )
+    narrow = media(max_width=40 * rem, grid_template_columns="1fr")
 
 
 class field_label(label):
-    style = css(display="grid", gap=.3 * rem, font_size=.8 * rem, font_weight=650)
+    style = css(
+        display="grid",
+        gap=.3 * rem,
+        min_width=0,
+        font_size=.8 * rem,
+        font_weight=650,
+    )
 
 
 class text_field(input):
@@ -204,7 +213,9 @@ class text_field(input):
         background="white",
         color="inherit",
         font="inherit",
+        font_size=1 * rem,
     )
+    focus = css(outline="2px solid #8b5cf6", outline_offset="1px")
 
 
 class primary_button(button):
@@ -218,7 +229,11 @@ class primary_button(button):
         font="inherit",
         font_weight=700,
         cursor="pointer",
+        min_height=2.75 * rem,
     )
+    hover = css(background="#5b21b6")
+    focus_visible = css(outline="3px solid #c4b5fd", outline_offset="2px")
+    narrow = media(max_width=40 * rem, width="100%")
 
 
 class error_message(p):
@@ -238,10 +253,15 @@ class bookmark_toolbar(div):
         gap=1 * rem,
         margin="1rem 0",
     )
+    narrow = media(
+        max_width=40 * rem,
+        display="grid",
+        justify_content="stretch",
+    )
 
 
 class filters(div):
-    style = css(display="flex", gap=.5 * rem)
+    style = css(display="flex", gap=.5 * rem, flex_wrap="wrap")
 
 
 class filter_link(a):
@@ -253,6 +273,8 @@ class filter_link(a):
         border_radius=99 * rem,
         font_size=.9 * rem,
     )
+    hover = css(background="#f5f3ff", border_color="#8b5cf6")
+    focus_visible = css(outline="2px solid #8b5cf6", outline_offset="2px")
 
 
 class unread_badge(span):
@@ -264,6 +286,7 @@ class unread_badge(span):
         font_size=.85 * rem,
         font_weight=700,
     )
+    narrow = media(max_width=40 * rem, justify_self="start")
 
 
 class bookmark_list(section):
@@ -282,40 +305,40 @@ class bookmark_card(article):
         background="white",
         box_shadow="0 1px 3px rgb(15 23 42 / .06)",
     )
+    narrow = media(max_width=40 * rem, grid_template_columns="minmax(0, 1fr)")
 
-    def __init__(self, bookmark: Bookmark, routes: BookmarkRoutes):
+    def __init__(self, bookmark: Bookmark):
         self.bookmark = bookmark
-        self.routes = routes
 
     def content(self):
         bookmark = self.bookmark
-        yield div(
-            h2(
-                a(
+        yield bookmark_copy(
+            bookmark_title(
+                bookmark_link(
                     bookmark.title,
                     href=bookmark.url,
                     target="_blank",
                     rel="noreferrer",
                 )
             ),
-            small(bookmark.url),
+            bookmark_url(bookmark.url),
         )
-        yield aside(
-            button(
+        yield card_actions(
+            action_button(
                 "Mark unread" if bookmark.is_read else "Mark read",
                 type="button",
                 hx=hx.patch(
-                    self.routes.toggle,
+                    bookmarks.toggle,
                     bookmark_id=bookmark.id,
                     target=closest(bookmark_card),
                     swap=outer_morph,
                 ),
             ),
-            button(
+            delete_button(
                 "Delete",
                 type="button",
                 hx=hx.delete(
-                    self.routes.delete,
+                    bookmarks.delete,
                     bookmark_id=bookmark.id,
                     target=closest(bookmark_card),
                     swap="delete",
@@ -323,6 +346,53 @@ class bookmark_card(article):
                 ),
             ),
         )
+
+
+class bookmark_copy(div):
+    style = css(min_width=0)
+
+
+class bookmark_title(h2):
+    style = css(margin="0 0 .25rem", font_size=1.05 * rem, line_height=1.3)
+
+
+class bookmark_link(a):
+    style = css(color="#2e1065", text_decoration="none")
+    hover = css(text_decoration="underline")
+    focus_visible = css(outline="2px solid #8b5cf6", outline_offset="2px")
+
+
+class bookmark_url(small):
+    style = css(color="#64748b", overflow_wrap="anywhere")
+
+
+class card_actions(aside):
+    style = css(
+        display="flex",
+        align_items="start",
+        gap=.5 * rem,
+        flex_wrap="wrap",
+    )
+
+
+class action_button(button):
+    style = css(
+        min_height=2.5 * rem,
+        padding=".5rem .7rem",
+        border="1px solid #cbd5e1",
+        border_radius=.5 * rem,
+        background="white",
+        color="#334155",
+        font="inherit",
+        font_size=.85 * rem,
+        cursor="pointer",
+    )
+    hover = css(background="#f8fafc", border_color="#94a3b8")
+    focus_visible = css(outline="2px solid #8b5cf6", outline_offset="2px")
+
+
+class delete_button(action_button):
+    style = css(color="#b91c1c")
 
 
 class read:
@@ -351,9 +421,9 @@ class empty_state(p):
     )
 
 
-def bookmark_view(bookmark: Bookmark, routes: BookmarkRoutes):
+def bookmark_view(bookmark: Bookmark):
     kind = read_bookmark if bookmark.is_read else unread_bookmark
-    return kind(bookmark, routes)
+    return kind(bookmark)
 
 
 def count_view(store: BookmarkStore):
@@ -363,18 +433,18 @@ def count_view(store: BookmarkStore):
 
 
 def list_view(
-    store: BookmarkStore, routes: BookmarkRoutes, state: str = "all"
+    store: BookmarkStore, state: str = "all"
 ):
     bookmarks = store.list(state)
     children = (
-        [bookmark_view(bookmark, routes) for bookmark in bookmarks]
+        [bookmark_view(bookmark) for bookmark in bookmarks]
         if bookmarks
         else [empty_state(f"No {state if state != 'all' else ''} bookmarks yet.")]
     )
     return bookmark_list(*children, id=id.bookmark_list)
 
 
-def form_view(routes: BookmarkRoutes, error: str = ""):
+def form_view(error: str = ""):
     children = [
         field_label(
             "URL",
@@ -396,29 +466,29 @@ def form_view(routes: BookmarkRoutes, error: str = ""):
     return bookmark_form(
         *children,
         method="post",
-        action=routes.create,
+        action=bookmarks.create,
         hx=hx.post(
-            routes.create, target=closest(bookmark_app), swap=outer_morph
+            bookmarks.create, target=closest(bookmark_app), swap=outer_morph
         ),
     )
 
 
-def app_view(store: BookmarkStore, routes: BookmarkRoutes, error: str = ""):
+def app_view(store: BookmarkStore, error: str = ""):
     return bookmark_app(
         app_header(
             eyebrow("Hyperclass example"),
             h1("Bookmark inbox"),
             p("Save now. Read when the tab situation is less dramatic."),
         ),
-        form_view(routes, error),
+        form_view(error),
         bookmark_toolbar(
             filters(
                 *(
                     filter_link(
                         name.title(),
-                        href=routes.bookmarks.url(query={"filter": name}),
+                        href=bookmarks.listing.url(query={"filter": name}),
                         hx=hx.get(
-                            routes.bookmarks,
+                            bookmarks.listing,
                             query={"filter": name},
                             target=bookmark_list,
                             swap=outer_morph,
@@ -429,63 +499,67 @@ def app_view(store: BookmarkStore, routes: BookmarkRoutes, error: str = ""):
             ),
             count_view(store),
         ),
-        list_view(store, routes),
+        list_view(store),
         footer(small("Python · SQLite · WSGI · htmx 4")),
     )
 
 
-def create_app(database: str | Path) -> App:
-    store = BookmarkStore(database)
-    application = App(title="Hyperclass Bookmarks")
+class bookmarks(App):
+    def __init__(self, database: str | Path):
+        self.store = BookmarkStore(database)
+        super().__init__(title="Hyperclass Bookmarks")
 
-    @application.get("/")
-    def index(request):
-        return app_view(store, routes)
+    @get("/")
+    def index(self, request):
+        return app_view(self.store)
 
-    @application.post("/bookmarks")
-    def create(request):
+    @post("/bookmarks")
+    def create(self, request):
         try:
-            store.add(request.form.get("url", ""), request.form.get("title", ""))
+            self.store.add(
+                request.form.get("url", ""), request.form.get("title", "")
+            )
         except ValueError as error:
-            return Response(app_view(store, routes, str(error)), 422)
-        return app_view(store, routes)
+            return Response(app_view(self.store, str(error)), 422)
+        return app_view(self.store)
 
-    @application.get("/bookmarks")
-    def bookmarks(request):
+    @get("/bookmarks")
+    def listing(self, request):
         state = request.query.get("filter", "all")
         return list_view(
-            store,
-            routes,
+            self.store,
             state if state in {"all", "unread", "read"} else "all",
         )
 
-    @application.patch("/bookmarks/<int:bookmark_id>")
-    def toggle(request, bookmark_id):
+    @patch("/bookmarks/<int:bookmark_id>")
+    def toggle(self, request, bookmark_id):
         try:
-            bookmark = store.toggle(bookmark_id)
+            bookmark = self.store.toggle(bookmark_id)
         except LookupError:
             return Response("Bookmark not found", 404)
         return fragment(
-            bookmark_view(bookmark, routes),
-            partial(count_view(store), id=id.unread_count, hx_swap=outer_morph),
+            bookmark_view(bookmark),
+            partial(
+                count_view(self.store), id=id.unread_count, hx_swap=outer_morph
+            ),
         )
 
-    @application.delete("/bookmarks/<int:bookmark_id>")
-    def delete(request, bookmark_id):
+    @delete_route("/bookmarks/<int:bookmark_id>")
+    def delete(self, request, bookmark_id):
         try:
-            store.delete(bookmark_id)
+            self.store.delete(bookmark_id)
         except LookupError:
             return Response("Bookmark not found", 404)
         return fragment(
             markup("<!-- bookmark deleted -->"),
-            partial(count_view(store), id=id.unread_count, hx_swap=outer_morph),
+            partial(
+                count_view(self.store), id=id.unread_count, hx_swap=outer_morph
+            ),
         )
 
-    routes = BookmarkRoutes(create, bookmarks, toggle, delete)
 
-    application.store = store
-    application.bookmark_routes = routes
-    return application
+def create_app(database: str | Path) -> App:
+    return bookmarks(database)
 
 
 app = create_app(os.environ.get("HYPERCLASS_BOOKMARKS_DB", "bookmarks.db"))
