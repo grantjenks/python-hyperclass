@@ -79,7 +79,8 @@ def test_invalid_url_returns_form_error(tmp_path):
     captured, payload = request(
         app, "POST", "/bookmarks", {"url": "not a url"}, htmx=True
     )
-    assert captured["status"] == "422 Unprocessable Entity"
+    # Python 3.13 renamed the standard reason phrase to "Unprocessable Content".
+    assert captured["status"].startswith("422 ")
     assert "Enter a full http:// or https:// URL." in payload
     assert 'role="alert"' in payload
 
