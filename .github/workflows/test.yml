@@ -26,7 +26,8 @@ jobs:
           check-latest: true
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8
+        # v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
 
       - name: Run tests
         run: uvx nox -s tests
@@ -45,7 +46,8 @@ jobs:
           python-version: "3.12"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8
+        # v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
 
       - name: Run browser contract
         run: uvx nox -s browser
