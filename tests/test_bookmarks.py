@@ -117,6 +117,7 @@ def test_live_search_and_filter_context(tmp_path):
     assert ">htmx</a>" not in payload
     assert 'value="python"' in payload
     assert 'hx-trigger="input changed delay:250ms, search"' in payload
+    assert 'hx-include="[name=&quot;filter&quot;]"' in payload
 
     captured, payload = request(
         app, path="/bookmarks?filter=unread&q=python", htmx=True

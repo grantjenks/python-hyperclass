@@ -552,14 +552,15 @@ def results_view(store: BookmarkStore, state: str = "all", query: str = ""):
             search_form(
                 search_field(
                     value=query,
+                    hx=hx.get(
+                        bookmarks.listing,
+                        include=name.filter,
+                        target=id.bookmark_results,
+                        swap=outer_morph,
+                        trigger="input changed delay:250ms, search",
+                    ),
                 ),
                 filter_field(value=state),
-                hx=hx.get(
-                    bookmarks.listing,
-                    target=id.bookmark_results,
-                    swap=outer_morph,
-                    trigger="input changed delay:250ms, search",
-                ),
             ),
             filters(
                 *(
