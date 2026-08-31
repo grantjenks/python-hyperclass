@@ -23,6 +23,7 @@ from hyperclass import (
     find,
     footer,
     form,
+    fragment,
     get,
     h1,
     header,
@@ -59,6 +60,7 @@ class Message:
     role: str
     content: str
     status: str
+    generation: int
 
 
 @dataclass(frozen=True)
@@ -85,10 +87,18 @@ class ChatStore:
                     conversation_id INTEGER NOT NULL REFERENCES conversations(id),
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
-                    status TEXT NOT NULL
+                    status TEXT NOT NULL,
+                    generation INTEGER NOT NULL DEFAULT 0
                 );
                 """
             )
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(messages)")
+            }
+            if "generation" not in columns:
+                connection.execute(
+                    "ALTER TABLE messages ADD COLUMN generation INTEGER NOT NULL DEFAULT 0"
+                )
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=10)
@@ -125,13 +135,19 @@ class ChatStore:
         return conversations[0] if conversations else self.create_conversation()
 
     def add_message(
-        self, conversation_id: int, role: str, content: str, status: str = "complete"
+        self,
+        conversation_id: int,
+        role: str,
+        content: str,
+        status: str = "complete",
+        generation: int = 0,
     ) -> Message:
         with self.connect() as connection:
             cursor = connection.execute(
-                """INSERT INTO messages(conversation_id, role, content, status)
-                   VALUES (?, ?, ?, ?)""",
-                (conversation_id, role, content, status),
+                """INSERT INTO messages(
+                       conversation_id, role, content, status, generation
+                   ) VALUES (?, ?, ?, ?, ?)""",
+                (conversation_id, role, content, status, generation),
             )
             if role == "user":
                 connection.execute(
@@ -149,7 +165,12 @@ class ChatStore:
         if row is None:
             raise LookupError(message_id)
         return Message(
-            row["id"], row["conversation_id"], row["role"], row["content"], row["status"]
+            row["id"],
+            row["conversation_id"],
+            row["role"],
+            row["content"],
+            row["status"],
+            row["generation"],
         )
 
     def messages(self, conversation_id: int) -> list[Message]:
@@ -159,7 +180,14 @@ class ChatStore:
                 (conversation_id,),
             ).fetchall()
         return [
-            Message(row["id"], row["conversation_id"], row["role"], row["content"], row["status"])
+            Message(
+                row["id"],
+                row["conversation_id"],
+                row["role"],
+                row["content"],
+                row["status"],
+                row["generation"],
+            )
             for row in rows
         ]
 
@@ -169,6 +197,35 @@ class ChatStore:
                 "UPDATE messages SET content = ?, status = ? WHERE id = ?",
                 (content, status, message_id),
             )
+        return self.message(message_id)
+
+    def update_generation(
+        self,
+        message_id: int,
+        generation: int,
+        content: str,
+        status: str,
+    ) -> Message | None:
+        """Update only while this iterator still owns the generation."""
+
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """UPDATE messages SET content = ?, status = ?
+                   WHERE id = ? AND generation = ? AND status = 'streaming'""",
+                (content, status, message_id, generation),
+            )
+        return self.message(message_id) if cursor.rowcount else None
+
+    def restart(self, message_id: int) -> Message:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """UPDATE messages
+                   SET content = '', status = 'streaming', generation = generation + 1
+                   WHERE id = ? AND role = 'assistant'""",
+                (message_id,),
+            )
+        if cursor.rowcount == 0:
+            raise LookupError(message_id)
         return self.message(message_id)
 
     def stop(self, message_id: int) -> Message:
@@ -332,9 +389,11 @@ class message(article):
         yield message_body(
             message_meta(
                 span("You" if value.role == "user" else "Hyperclass Assistant"),
-                status_badge(value.status) if value.status != "complete" else None,
+                status_badge(value.status, id=id.message_status[value.id]),
             ),
-            message_copy(value.content or "Thinking…"),
+            message_copy(
+                value.content or "Thinking…", id=id.message_copy[value.id]
+            ),
             message_actions(*message_controls(value)) if value.role == "assistant" else None,
         )
 
@@ -394,6 +453,10 @@ class subtle_button(button):
         cursor="pointer",
     )
     hover = css(background="#f1f5f9")
+
+
+class action_label(span):
+    pass
 
 
 class composer_footer(footer):
@@ -465,30 +528,49 @@ class stream_sink(div):
 
 
 def message_controls(value: Message):
-    if value.status == "streaming":
-        return (
-            subtle_button(
-                "Stop generating",
-                aria_label="Stop generating",
-                hx=hx.post(
-                    ChatRoutes.stop,
-                    message_id=value.id,
-                    target=id.message[value.id],
-                    swap=outer_morph,
-                ),
-            ),
-        )
     return (
         subtle_button(
-            "Regenerate",
-            aria_label="Regenerate response",
-            hx=hx.post(
-                ChatRoutes.regenerate,
-                message_id=value.id,
-                target=id.stream_sink,
-                swap="none",
-                stream=True,
+            action_label(
+                "Stop generating" if value.status == "streaming" else "Regenerate response",
+                id=id.message_action[value.id],
             ),
+            hx=(
+                hx.post(
+                    ChatRoutes.generation,
+                    message_id=value.id,
+                    target=id.stream_sink,
+                    swap="none",
+                    stream=True,
+                )
+                | hx.config("sse.releaseOn:first")
+            ),
+        ),
+    )
+
+
+def message_update(value: Message):
+    """Update a message without replacing the button that owns its stream."""
+
+    return fragment(
+        partial(
+            message_copy(
+                value.content or "Thinking…", id=id.message_copy[value.id]
+            ),
+            hx_target=id.message_copy[value.id].selector,
+            hx_swap=outer_morph,
+        ),
+        partial(
+            status_badge(value.status, id=id.message_status[value.id]),
+            hx_target=id.message_status[value.id].selector,
+            hx_swap=outer_morph,
+        ),
+        partial(
+            action_label(
+                "Stop generating" if value.status == "streaming" else "Regenerate response",
+                id=id.message_action[value.id],
+            ),
+            hx_target=id.message_action[value.id].selector,
+            hx_swap=outer_morph,
         ),
     )
 
@@ -607,7 +689,9 @@ class ChatRoutes:
         except LookupError:
             return "Conversation not found", 404
         user = self.store.add_message(chat_id, "user", prompt)
-        assistant = self.store.add_message(chat_id, "assistant", "", "streaming")
+        assistant = self.store.add_message(
+            chat_id, "assistant", "", "streaming", generation=1
+        )
         return stream(self._events(prompt, assistant, initial=(user, assistant)))
 
     @post("/messages/<int:message_id>/stop")
@@ -621,10 +705,27 @@ class ChatRoutes:
     def regenerate(self, request, message_id):
         try:
             prompt = self.store.preceding_prompt(message_id)
-            message = self.store.update_message(message_id, "", "streaming")
+            message = self.store.restart(message_id)
         except LookupError:
             return "Message not found", 404
-        return stream(self._events(prompt, message))
+        return stream(self._events(prompt, message, in_place=True))
+
+    @post("/messages/<int:message_id>/generation")
+    def generation(self, request, message_id):
+        try:
+            message = self.store.message(message_id)
+            if message.status == "streaming":
+                stopped = self.store.stop(message_id)
+                return partial(
+                    message_view(stopped),
+                    hx_target=id.message[message_id].selector,
+                    hx_swap=outer_morph,
+                )
+            prompt = self.store.preceding_prompt(message_id)
+            restarted = self.store.restart(message_id)
+        except LookupError:
+            return "Message not found", 404
+        return stream(self._events(prompt, restarted, in_place=True))
 
     def _events(
         self,
@@ -632,6 +733,7 @@ class ChatRoutes:
         assistant: Message,
         *,
         initial: tuple[Message, Message] | None = None,
+        in_place: bool = False,
     ) -> Iterator:
         if initial:
             yield partial(
@@ -640,21 +742,34 @@ class ChatRoutes:
                 hx_swap=append,
             )
         content = ""
+        generation = assistant.generation
         try:
             for chunk in self.model(prompt):
-                if self.store.message(assistant.id).status != "streaming":
+                current = self.store.message(assistant.id)
+                if (
+                    current.status != "streaming"
+                    or current.generation != generation
+                ):
                     return
                 content += str(chunk)
-                current = self.store.update_message(assistant.id, content, "streaming")
-                yield partial(
+                current = self.store.update_generation(
+                    assistant.id, generation, content, "streaming"
+                )
+                if current is None:
+                    return
+                yield message_update(current) if in_place else partial(
                     message_view(current),
                     hx_target=id.message[assistant.id].selector,
                     hx_swap=outer_morph,
                 )
                 if self.token_delay:
                     time.sleep(self.token_delay)
-            current = self.store.update_message(assistant.id, content, "complete")
-            yield partial(
+            current = self.store.update_generation(
+                assistant.id, generation, content, "complete"
+            )
+            if current is None:
+                return
+            yield message_update(current) if in_place else partial(
                 message_view(current),
                 hx_target=id.message[assistant.id].selector,
                 hx_swap=outer_morph,
@@ -663,12 +778,15 @@ class ChatRoutes:
             self.store.stop(assistant.id)
             raise
         except Exception as error:
-            current = self.store.update_message(
+            current = self.store.update_generation(
                 assistant.id,
+                generation,
                 f"{content}\n\nGeneration failed: {error}",
                 "error",
             )
-            yield partial(
+            if current is None:
+                return
+            yield message_update(current) if in_place else partial(
                 message_view(current),
                 hx_target=id.message[assistant.id].selector,
                 hx_swap=outer_morph,

@@ -526,6 +526,7 @@ runtime dependency.
 ## Status
 
 Hyperclass is deliberately pre-alpha: useful enough to build small applications
-and young enough for its API to change. Python 3.10 through 3.14 are tested.
+and young enough for its API to change. Python 3.10 through 3.14 and the
+cross-host browser contract are tested on every change.
 
 Apache-2.0 licensed.
