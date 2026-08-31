@@ -6,13 +6,14 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlencode
 
-from flask import Flask, request, url_for
+from flask import Flask, request, stream_with_context, url_for
 from flask import Response as FlaskResponse
 
 from .html import Fragment, Page, element
 from .lite import call_handler
 from .rendering import render_result, unpack_result
 from .routing import Endpoint, Handler, Route, RouteURL, class_endpoints, route
+from .streaming import EventStream
 
 
 class App(Flask):
@@ -106,6 +107,18 @@ class App(Flask):
             return super().make_response(rv)
 
         body, status, headers = unpack_result(rv)
+        if isinstance(body, EventStream):
+            response = FlaskResponse(
+                stream_with_context(
+                    body.iter_text(title=self.title, url_resolver=self.resolve_url)
+                ),
+                status=status,
+                headers=headers,
+                content_type="text/event-stream; charset=utf-8",
+            )
+            response.headers.setdefault("Cache-Control", "no-cache")
+            response.headers.setdefault("X-Accel-Buffering", "no")
+            return response
         if isinstance(body, (element, Fragment, Page)):
             body = render_result(
                 body,

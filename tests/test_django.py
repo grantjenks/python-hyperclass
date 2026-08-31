@@ -21,7 +21,7 @@ from django.http import HttpRequest, HttpResponse
 from django.test import Client
 from django.urls import clear_url_caches, include, path
 
-from hyperclass import div, form, get, hx, post
+from hyperclass import div, form, get, hx, post, stream
 from hyperclass.django import App
 
 
@@ -95,3 +95,16 @@ def test_django_dispatches_methods_on_one_url_pattern():
     client = mounted(DjangoRoutes(namespace="methods"))
     response = client.get("/mounted/items/3")
     assert response.status_code == 405
+
+
+def test_django_streams_server_sent_events():
+    class Events(App):
+        @get("/events")
+        def events(self, request):
+            return stream([div("one"), div("two")])
+
+    response = mounted(Events(namespace="events")).get("/mounted/events")
+    assert response["Content-Type"] == "text/event-stream; charset=utf-8"
+    assert b"".join(response.streaming_content) == (
+        b"data: <div>one</div>\n\ndata: <div>two</div>\n\n"
+    )

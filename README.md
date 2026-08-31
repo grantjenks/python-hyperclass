@@ -243,10 +243,15 @@ span("3 unread", id=id.unread_count)
 hx.get(count, target=id.unread_count)
 
 assert id.unread_count is id.unread_count
+assert id.message[42] is id.message[42]
 ~~~
 
 As an HTML attribute, `id.unread_count` renders as `unread-count`. As a
 selector, it renders as `#unread-count`.
+
+IDs can carry application keys without returning to strings. `id.message[42]`
+renders as `message-42` in an `id=` attribute and `#message-42` when used as a
+selector. String keys translate underscores to dashes too.
 
 Form names work the same way while preserving Python underscores:
 
@@ -406,15 +411,71 @@ page, Hyperclass includes its CSS in a partial targeting the page's stable
 `hyperclass-styles` stylesheet. The new fragment is styled immediately, without
 a reload or a global CSS build.
 
+htmx attributes are mappings and compose with `|`. Modifiers and events remain
+Python expressions:
+
+~~~python
+attributes = (
+    hx.post(send, stream=True, target=id.stream_sink, swap="none")
+    | hx.on.before_request("this.reset()")
+    | hx.headers.inherited({"X-Workspace": "demo"})
+)
+~~~
+
+`stream=True` enables htmx 4's SSE response handling and adds the pinned
+`hx-sse` extension to that page. `hx.sse.connect(events)` is available for
+persistent connections.
+
+## Streaming responses
+
+Any host can return a `stream(...)` of ordinary Hyperclass values. Each value
+becomes one correctly framed, escaped server-sent event:
+
+~~~python
+from hyperclass import id, outer_morph, partial, stream
+
+
+@post("/messages/<int:message_id>/regenerate")
+def regenerate(self, request, message_id):
+    def events():
+        answer = ""
+        for token in model(prompt):
+            answer += token
+            yield partial(
+                message_view(message_id, answer),
+                hx_target=id.message[message_id].selector,
+                hx_swap=outer_morph,
+            )
+
+    return stream(events())
+~~~
+
+The response is streamed by Lite, Flask, or Django with the same handler.
+`event(value, name=..., id=..., retry=...)` exposes named events and replay
+fields when an application needs them. Component CSS discovered during a
+stream is carried to the browser once, just like a normal htmx fragment.
+
 ## Try the examples
 
-Clone the repository and run the persistent SQLite bookmark inbox:
+Clone the repository and run the persistent streaming chat:
 
 ~~~console
 git clone https://github.com/grantjenks/python-hyperclass
 cd python-hyperclass
+python -m hyperclass examples.chat:app
+# Flask: flask --app examples.chat_flask run
+~~~
+
+The chat demonstrates an AI-style interface without an API key: persistent
+conversations, responsive history, token streaming, stop, and regenerate. Pass
+any `model(prompt) -> iterable[str]` to `create_app` or `ChatRoutes` to replace
+the deterministic local demo model. Its components and routes are shared by
+Lite, Flask, and Django.
+
+The SQLite bookmark inbox remains a smaller CRUD example:
+
+~~~console
 python -m hyperclass examples.bookmarks:app
-# Flask: flask --app examples.bookmarks_flask run
 ~~~
 
 The bookmark app adds, searches, filters, edits, marks, and deletes bookmarks.
@@ -451,9 +512,9 @@ Run the Python test matrix locally with:
 uvx nox -s tests
 ~~~
 
-The browser contract starts each of the Lite, Flask, and Django bookmark hosts
-on an ephemeral port and exercises add, toggle, edit, search, and delete
-through htmx in Chromium:
+The browser contract starts the Lite, Flask, and Django bookmark and chat hosts
+on ephemeral ports. It exercises CRUD plus streamed send, concurrent stop,
+regenerate, and persistence through htmx in Chromium:
 
 ~~~console
 uvx nox -s browser

@@ -101,6 +101,14 @@ def test_ids_are_lazy_interned_python_references():
     )
 
 
+def test_ids_can_be_parameterized_with_python_values():
+    assert id.message[42] is id.message[42]
+    assert id.message["draft_reply"] is id.message["draft_reply"]
+    assert str(id.message[42]) == "message-42"
+    assert id.message[42].selector == "#message-42"
+    assert str(id.message["draft_reply"]) == "message-draft-reply"
+
+
 def test_page_collects_state_and_media_styles_from_classes():
     class interactive_card(card):
         hover = css(background="lavender")

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 — 2026-08-31
+
+- Stream renderable server-sent events from the Lite, Flask, and Django hosts.
+- Load htmx 4 extensions only when a component requests them.
+- Compose htmx attributes and author modifiers such as `hx.on.before_request`.
+- Parameterize first-class IDs with application keys such as `id.message[42]`.
+- Add a persistent, responsive AI chat example with an injectable model,
+  token streaming, stop, regenerate, and shared routes across all three hosts.
+- Exercise the complete chat lifecycle in the cross-host Chromium contract.
+
 ## 0.1.1 — 2026-08-31
 
 - Read portable query keys correctly from native Flask and Django multidicts.

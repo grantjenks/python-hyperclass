@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+import json
 from typing import Any
 
 from .html import selector
@@ -33,8 +34,9 @@ def previous(value: Any | None = None) -> Target:
 
 
 class Attributes(Mapping[str, Any]):
-    def __init__(self, values: Mapping[str, Any]):
+    def __init__(self, values: Mapping[str, Any], *, extensions: tuple[str, ...] = ()):
         self.values = dict(values)
+        self.extensions = extensions
 
     def __getitem__(self, key: str) -> Any:
         return self.values[key]
@@ -45,13 +47,55 @@ class Attributes(Mapping[str, Any]):
     def __len__(self) -> int:
         return len(self.values)
 
+    def __or__(self, other: Mapping[str, Any]) -> Attributes:
+        values = {**self.values, **dict(other)}
+        extensions = tuple(
+            dict.fromkeys((*self.extensions, *getattr(other, "extensions", ())))
+        )
+        return Attributes(values, extensions=extensions)
+
+    def __ror__(self, other: Mapping[str, Any]) -> Attributes:
+        return Attributes(other) | self
+
 
 def _option_name(value: str) -> str:
     return f"hx-{value.rstrip('_').replace('_', '-')}"
 
 
+class HtmxAttribute:
+    def __init__(self, *parts: str):
+        self.parts = parts
+
+    def __getattr__(self, name: str) -> HtmxAttribute:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return HtmxAttribute(*self.parts, name)
+
+    def __call__(self, value: Any = True) -> Attributes:
+        root, *modifiers = self.parts
+        extension = ("sse",) if root == "sse" else ()
+        if root == "on":
+            suffix = ":".join(part.replace("_", ":") for part in modifiers)
+            attribute = f"hx-on::{suffix}"
+        else:
+            attribute = _option_name(root)
+            if modifiers:
+                attribute += ":" + ":".join(
+                    part.rstrip("_").replace("_", "-") for part in modifiers
+                )
+        if isinstance(value, Mapping):
+            value = json.dumps(value, separators=(",", ":"))
+        return Attributes({attribute: value}, extensions=extension)
+
+
 class Htmx:
+    def __getattr__(self, name: str) -> HtmxAttribute:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return HtmxAttribute(name)
+
     def request(self, method: str, url: Any, **options: Any) -> Attributes:
+        stream = bool(options.pop("stream", False))
         route_url = getattr(url, "url", None)
         route_parameters = getattr(url, "parameters", None)
         if callable(route_url) and callable(route_parameters):
@@ -66,10 +110,17 @@ class Htmx:
         for name, value in options.items():
             if value is None:
                 continue
-            if name in {"include", "target", "select", "select_oob", "sync"}:
+            if name in {
+                "disable",
+                "include",
+                "target",
+                "select",
+                "select_oob",
+                "sync",
+            }:
                 value = selector(value) if not isinstance(value, Target) else value
             values[_option_name(name)] = value
-        return Attributes(values)
+        return Attributes(values, extensions=("sse",) if stream else ())
 
     def get(self, url: Any, **options: Any) -> Attributes:
         return self.request("get", url, **options)

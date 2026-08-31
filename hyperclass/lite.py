@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, is_dataclass
 from http import HTTPStatus
+from socketserver import ThreadingMixIn
 from typing import Any, get_type_hints
 from urllib.parse import parse_qs
-from wsgiref.simple_server import make_server
+from wsgiref.simple_server import WSGIServer, make_server
 
 from .binding import Values, bind
 from .rendering import render_result, unpack_result
@@ -26,8 +27,15 @@ from .routing import (
     put,
     route,
 )
+from .streaming import EventStream
 
 StartResponse = Callable[[str, list[tuple[str, str]]], Any]
+
+
+class ThreadingWSGIServer(ThreadingMixIn, WSGIServer):
+    """The standard WSGI server with concurrent request handling."""
+
+    daemon_threads = True
 
 
 class Request:
@@ -146,7 +154,7 @@ class App:
 
     def __call__(
         self, environ: Mapping[str, Any], start_response: StartResponse
-    ) -> list[bytes]:
+    ) -> Iterable[bytes]:
         request = Request(environ)
         handler = self.routes.get((request.method, request.path))
         parameters: dict[str, Any] = {}
@@ -179,7 +187,21 @@ class App:
 
     def _respond(
         self, start_response: StartResponse, response: Response, request: Request
-    ) -> list[bytes]:
+    ) -> Iterable[bytes]:
+        if isinstance(response.body, EventStream):
+            headers = [
+                ("Content-Type", "text/event-stream; charset=utf-8"),
+                ("Cache-Control", "no-cache"),
+                ("X-Accel-Buffering", "no"),
+            ]
+            headers.extend(response.headers)
+            start_response(
+                f"{response.status} {HTTPStatus(response.status).phrase}", headers
+            )
+            return response.body.iter_bytes(
+                title=self.title,
+                url_resolver=self.resolve_url,
+            )
         text = render_result(
             response.body,
             title=self.title,
@@ -205,7 +227,12 @@ class App:
         )
 
     def run(self, host: str = "127.0.0.1", port: int = 8000) -> None:
-        with make_server(host, port, self) as server:
+        with make_server(
+            host,
+            port,
+            self,
+            server_class=ThreadingWSGIServer,
+        ) as server:
             print(f"Serving on http://{host}:{port}")
             server.serve_forever()
 

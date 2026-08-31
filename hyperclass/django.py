@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlencode
 
-from django.http import HttpRequest, HttpResponse, QueryDict
+from django.http import HttpRequest, HttpResponse, QueryDict, StreamingHttpResponse
 from django.middleware.csrf import get_token
 from django.urls import URLPattern, reverse
 from django.urls import path as django_path
@@ -17,6 +17,7 @@ from .html import Fragment, Page, element
 from .lite import call_handler
 from .rendering import render_result, unpack_result
 from .routing import Endpoint, Handler, Route, RouteURL, class_endpoints, route
+from .streaming import EventStream
 
 _BARE_PARAMETER = re.compile(r"<([A-Za-z_]\w*)>")
 
@@ -136,6 +137,17 @@ class App:
             return result
 
         body, status, headers = unpack_result(result)
+        if isinstance(body, EventStream):
+            response = StreamingHttpResponse(
+                body.iter_bytes(title=self.title, url_resolver=self.resolve_url),
+                status=status,
+                content_type="text/event-stream; charset=utf-8",
+            )
+            response["Cache-Control"] = "no-cache"
+            response["X-Accel-Buffering"] = "no"
+            for name, value in headers:
+                response[name] = value
+            return response
         if isinstance(body, (element, Fragment, Page)):
             body = render_result(
                 body,

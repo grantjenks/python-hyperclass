@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from flask import Request, Response
 
-from hyperclass import div, form, get, hx, post, render
+from hyperclass import div, form, get, hx, post, render, stream
 from hyperclass.flask import App
 from examples.bookmarks import BookmarkRoutes
 
@@ -83,3 +83,16 @@ def test_flask_bookmark_routes_read_native_query_keys(tmp_path):
     )
     assert response.status_code == 200
     assert "No bookmarks matching &quot;missing&quot;." in response.text
+
+
+def test_flask_streams_server_sent_events():
+    app = App()
+
+    @app.get("/events")
+    def events(request):
+        return stream([div("one"), div("two")])
+
+    response = app.test_client().get("/events")
+    assert response.content_type == "text/event-stream; charset=utf-8"
+    assert response.text.startswith("data: <div>one</div>\n\n")
+    assert response.text.endswith("data: <div>two</div>\n\n")

@@ -62,8 +62,9 @@ from .lite import (
     route,
 )
 from .wsgi import delete as delete_route
+from .streaming import EventStream, SSEEvent, event, stream
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 hidden = "hidden"
 submit = "submit"
@@ -79,6 +80,7 @@ __all__ = [
     "BoundEndpoint",
     "Color",
     "Endpoint",
+    "EventStream",
     "Htmx",
     "Length",
     "Media",
@@ -87,6 +89,7 @@ __all__ = [
     "Route",
     "RouteURL",
     "Style",
+    "SSEEvent",
     "Target",
     "Unit",
     "Values",
@@ -99,6 +102,7 @@ __all__ = [
     "delete_swap",
     "delete_route",
     "em",
+    "event",
     "find",
     "flex",
     "grid",
@@ -126,6 +130,7 @@ __all__ = [
     "rem",
     "route",
     "submit",
+    "stream",
     "vh",
     "vw",
     *_html.__all__,

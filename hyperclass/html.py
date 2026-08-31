@@ -13,6 +13,9 @@ HTMX_SRC = "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0"
 HTMX_INTEGRITY = (
     "sha384-BvJpBiO8Kh31EqtJe5DRIeWrHWnCGkwytKs9NKFi86Hhw96dEqdEMzZDeK9iEGTc"
 )
+HTMX_EXTENSIONS = {
+    "sse": "https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-sse.min.js",
+}
 
 
 def class_name(value: type) -> str:
@@ -32,6 +35,11 @@ class Id:
     def __str__(self) -> str:
         return self.name
 
+    def __getitem__(self, value: Any) -> Id:
+        """Return an interned child id, e.g. ``id.message[42]``."""
+
+        return id._intern(f"{self.name}-{str(value).replace('_', '-')}")
+
 
 class IdNamespace:
     def __init__(self) -> None:
@@ -40,12 +48,15 @@ class IdNamespace:
     def __getattr__(self, name: str) -> Id:
         if name.startswith("_"):
             raise AttributeError(name)
+        return self._intern(name.replace("_", "-"))
+
+    def _intern(self, value: str) -> Id:
         try:
-            return self._values[name]
+            return self._values[value]
         except KeyError:
-            value = Id(name.replace("_", "-"))
-            self._values[name] = value
-            return value
+            identity = Id(value)
+            self._values[value] = identity
+            return identity
 
 
 id = IdNamespace()
@@ -176,6 +187,8 @@ class RenderContext:
         self.url_resolver = url_resolver
         self.styled_elements: list[type] = []
         self._seen_elements: set[type] = set()
+        self.extensions: list[str] = []
+        self._seen_extensions: set[str] = set()
 
     def register(self, value: type) -> None:
         if value in self._seen_elements:
@@ -188,6 +201,12 @@ class RenderContext:
         ):
             self._seen_elements.add(value)
             self.styled_elements.append(value)
+
+    def register_extensions(self, values: Iterable[str]) -> None:
+        for value in values:
+            if value not in self._seen_extensions:
+                self._seen_extensions.add(value)
+                self.extensions.append(value)
 
     def stylesheet(self) -> str:
         rules: list[str] = []
@@ -229,6 +248,10 @@ def _attribute_value(value: Any, context: RenderContext) -> str:
 def _attribute(target: dict[str, Any], name: str, value: Any) -> None:
     if name == "hx" and isinstance(value, Mapping):
         target.update(value)
+        extensions = getattr(value, "extensions", ())
+        if extensions:
+            existing = target.setdefault("_hyperclass_extensions", set())
+            existing.update(extensions)
     else:
         target[_attribute_name(name)] = value
 
@@ -279,7 +302,7 @@ Element = element
 TAG_NAMES = (
     "html head body title meta link style script main header footer nav section "
     "article "
-    "aside div span p a h1 h2 h3 h4 h5 h6 ul ol li dl dt dd form label input "
+    "aside div span p a h1 h2 h3 h4 h5 h6 ul ol li dl dt dd form fieldset legend label input "
     "button output textarea select option table thead tbody tfoot tr th td figure "
     "figcaption picture source img video audio canvas template details summary dialog "
     "blockquote pre code strong em small br hr"
@@ -321,6 +344,7 @@ def _render_attributes(
 ) -> str:
     attributes = _class_attributes(type(node))
     attributes.update(getattr(node, "_attrs", {}))
+    context.register_extensions(attributes.pop("_hyperclass_extensions", ()))
     generated = [class_name(value) for value in classes]
     explicit = attributes.pop("class", attributes.pop("class-", None))
     if explicit:
@@ -413,6 +437,10 @@ class Page:
                 f'<script src="{HTMX_SRC}" integrity="{HTMX_INTEGRITY}" '
                 'crossorigin="anonymous"></script>'
             )
+            script_html += "".join(
+                f'<script src="{escape(HTMX_EXTENSIONS[value], quote=True)}"></script>'
+                for value in context.extensions
+            )
         return (
             "<!doctype html>"
             f'<html lang="{escape(self.lang, quote=True)}"><head>'
@@ -437,6 +465,7 @@ __all__ = [
     "Element",
     "Fragment",
     "HTMX_INTEGRITY",
+    "HTMX_EXTENSIONS",
     "HTMX_SRC",
     "Id",
     "IdNamespace",
