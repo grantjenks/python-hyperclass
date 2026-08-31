@@ -7,10 +7,14 @@ Python class hierarchies.
 
 HTML elements are Python base classes. Python subclasses become CSS classes.
 Styles follow inheritance. Routes are methods. Decorated handlers are URLs.
-Interaction is ordinary HTTP over WSGI, with htmx 4 in the browser.
+Interaction is ordinary HTTP, with htmx 4 in the browser. Run it with the tiny
+built-in WSGI host, or put the same components and routes inside Flask or
+Django.
 
 ~~~console
 pip install hyperclass
+# or: pip install "hyperclass[flask]"
+# or: pip install "hyperclass[django]"
 ~~~
 
 ## Sixty-second tour
@@ -53,7 +57,7 @@ class Guest:
     name: str
 
 
-class guestbook(App):
+class GuestbookRoutes:
     @get("/")
     def index(self, request):
         return card(
@@ -72,6 +76,10 @@ class guestbook(App):
         return card(f"Hello, {form.name}!")
 
 
+class guestbook(GuestbookRoutes, App):
+    pass
+
+
 app = guestbook(title="Guestbook")
 ~~~
 
@@ -83,6 +91,10 @@ python -m hyperclass myapp:app
 
 Then open <http://127.0.0.1:8000>. There is no JavaScript build, template
 language, ASGI dependency, or CSS file hidden elsewhere.
+
+`App` is the zero-dependency host and remains the shortest way to start. The
+HTML, CSS, htmx, selector, route, and form-binding APIs are shared by every
+host.
 
 ## HTML classes are Python classes
 
@@ -267,7 +279,7 @@ class bookmarks(App):
         return bookmark_card(...)
 ~~~
 
-Decorated handlers retain their route metadata:
+Decorated handlers retain their route metadata. Their URLs are lazy values:
 
 ~~~python
 bookmarks.toggle.url(bookmark_id=42)
@@ -282,6 +294,9 @@ hx.patch(
 
 Typed path parameters are converted before the handler runs. Query strings can
 be attached with `.url(query={...})` or the `query=` option on an htmx request.
+The URL is resolved only while rendering, so a Flask mount prefix or Django URL
+namespace is included automatically. Components never need to know where their
+application was mounted.
 
 ## Forms bind to dataclasses
 
@@ -305,16 +320,20 @@ class bookmarks(App):
 Binding supports strings, integers, floats, booleans, optional values, and
 lists or tuples of those values. Dataclass defaults remain defaults. Invalid or
 missing required values produce a `400 Bad Request`; application validation can
-return a more specific `Response`.
+return `(body, status)`.
 
-The underlying values remain available as `request.form`, `request.query`,
-`.get(...)`, `.getlist(...)`, and `.int(...)` when explicit parsing is clearer.
-Those accessors accept first-class `name.*` objects as well as strings.
+The lightweight host also exposes `request.form` and `request.query`. Flask and
+Django handlers receive their native request objects, so use `request.form` and
+`request.args` in Flask or `request.POST` and `request.GET` in Django. Their
+Werkzeug `MultiDict` and Django `QueryDict` values feed the same dataclass
+binder without a request wrapper.
 
-## WSGI and htmx 4
+## Three hosts, one component model
 
-A Hyperclass application is a normal WSGI callable. Use the standard-library
-development server:
+### Lightweight
+
+Top-level `App` is a deliberately small, dependency-free WSGI application. Use
+the standard-library development server:
 
 ~~~console
 python -m hyperclass package.module:app
@@ -324,6 +343,58 @@ python -m hyperclass package.module:app --host 0.0.0.0 --port 9000
 Production can use any WSGI server. Returning an element from an ordinary
 browser request wraps it in a complete page. Returning the same element to an
 htmx request sends only the fragment to swap.
+
+The explicit import is `from hyperclass.lite import App`; top-level
+`from hyperclass import App` is its convenient and backward-compatible alias.
+
+### Flask
+
+Install `hyperclass[flask]`, then subclass the native Flask host:
+
+~~~python
+from hyperclass.flask import App
+
+
+class guestbook(GuestbookRoutes, App):
+    pass
+
+
+app = guestbook(title="Guestbook")
+~~~
+
+`hyperclass.flask.App` is a real `flask.Flask` subclass. Route handlers receive
+Flask's request object, native Flask responses pass through unchanged, and
+Flask extensions, middleware, test clients, and WSGI deployment continue to
+work normally. Hyperclass route references use `url_for()` when rendered.
+
+### Django
+
+Install `hyperclass[django]`, create the route application, and include it in a
+normal Django URLconf:
+
+~~~python
+from django.urls import include, path
+from hyperclass.django import App
+
+
+class guestbook(GuestbookRoutes, App):
+    pass
+
+
+guestbook_app = guestbook(title="Guestbook", namespace="guestbook")
+
+urlpatterns = [
+    path("guestbook/", include(guestbook_app.urls)),
+]
+~~~
+
+Handlers receive native `HttpRequest` objects and may return native
+`HttpResponse` objects. Routes sharing a path are dispatched by HTTP method,
+and route references use Django `reverse()`, including the mount and namespace.
+Full Hyperclass pages inherit an htmx `X-CSRFToken` header and request a Django
+CSRF cookie, so unsafe htmx requests work with `CsrfViewMiddleware` enabled.
+
+### htmx 4
 
 `Page(...)` controls the document explicitly. Pages include a pinned htmx 4
 asset from jsDelivr. htmx 4 `<hx-partial>` responses can update several
@@ -342,11 +413,13 @@ Clone the repository and run the persistent SQLite bookmark inbox:
 git clone https://github.com/grantjenks/python-hyperclass
 cd python-hyperclass
 python -m hyperclass examples.bookmarks:app
+# Flask: flask --app examples.bookmarks_flask run
 ~~~
 
 The bookmark app adds, searches, filters, edits, marks, and deletes bookmarks.
-Its implementation is Python plus SQLite, WSGI, generated CSS, and htmx. It is
-also a compact integration test for the framework's ideas.
+Its route mixin and component tree are shared by Lite, Flask, and Django. The
+same browser contract adds, toggles, edits, searches, and deletes a bookmark on
+all three hosts.
 
 For the smallest example:
 
@@ -366,8 +439,8 @@ python -m hyperclass examples.counter:app
   client component lifecycle.
 - **Output should be boring.** Generated markup stays readable in View Source
   and DevTools.
-- **Small is a feature.** Prefer the standard library, WSGI, and a pinned htmx
-  asset over a framework stack.
+- **Choose your host.** Start with the standard library, or use Flask/Django
+  where their ecosystem and infrastructure are already the right answer.
 
 ## Development
 
@@ -377,8 +450,9 @@ Run the Python test matrix locally with:
 uvx nox -s tests
 ~~~
 
-The browser contract starts the bookmark WSGI application on an ephemeral port
-and exercises add, toggle, edit, search, and delete through htmx in Chromium:
+The browser contract starts each of the Lite, Flask, and Django bookmark hosts
+on an ephemeral port and exercises add, toggle, edit, search, and delete
+through htmx in Chromium:
 
 ~~~console
 uvx nox -s browser

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from html import escape
 from typing import Any
@@ -172,7 +172,8 @@ def fragment(*children: Any) -> Fragment:
 
 
 class RenderContext:
-    def __init__(self) -> None:
+    def __init__(self, url_resolver: Callable[[Any], str] | None = None) -> None:
+        self.url_resolver = url_resolver
         self.styled_elements: list[type] = []
         self._seen_elements: set[type] = set()
 
@@ -214,7 +215,10 @@ def _attribute_name(name: str) -> str:
     return name.replace("_", "-")
 
 
-def _attribute_value(value: Any) -> str:
+def _attribute_value(value: Any, context: RenderContext) -> str:
+    resolve = getattr(value, "__hyperclass_url__", None)
+    if callable(resolve):
+        return resolve(context.url_resolver)
     if isinstance(value, Style):
         return value.render()
     if isinstance(value, type) or isinstance(value, element):
@@ -312,7 +316,9 @@ partial = ElementMeta(
 )
 
 
-def _render_attributes(node: element, classes: tuple[type, ...]) -> str:
+def _render_attributes(
+    node: element, classes: tuple[type, ...], context: RenderContext
+) -> str:
     attributes = _class_attributes(type(node))
     attributes.update(getattr(node, "_attrs", {}))
     generated = [class_name(value) for value in classes]
@@ -332,7 +338,9 @@ def _render_attributes(node: element, classes: tuple[type, ...]) -> str:
         if value is True:
             rendered.append(name)
             continue
-        rendered.append(f'{name}="{escape(_attribute_value(value), quote=True)}"')
+        rendered.append(
+            f'{name}="{escape(_attribute_value(value, context), quote=True)}"'
+        )
     return "" if not rendered else " " + " ".join(rendered)
 
 
@@ -346,7 +354,7 @@ def _render(value: Any, context: RenderContext) -> str:
         tag = _tag_for(value_type)
         classes = semantic_classes(value_type)
         context.register(value_type)
-        attributes = _render_attributes(value, classes)
+        attributes = _render_attributes(value, classes, context)
         if tag in VOID_TAGS:
             return f"<{tag}{attributes}>"
         content = value.content()
@@ -375,16 +383,25 @@ class Page:
         lang: str = "en",
         head: Iterable[Any] = (),
         htmx: bool = True,
+        body_attributes: Mapping[str, Any] | None = None,
     ):
         self.children = children
         self.title = title
         self.lang = lang
         self.head = tuple(head)
         self.htmx = htmx
+        self.body_attributes = dict(body_attributes or {})
 
-    def render(self) -> str:
-        context = RenderContext()
-        body_html = _render(self.children, context)
+    def render(
+        self,
+        *,
+        url_resolver: Callable[[Any], str] | None = None,
+        body_attributes: Mapping[str, Any] | None = None,
+    ) -> str:
+        context = RenderContext(url_resolver=url_resolver)
+        attributes = {**self.body_attributes, **dict(body_attributes or {})}
+        body_node = globals()["body"](*self.children, **attributes)
+        body_html = _render(body_node, context)
         head_html = _render(self.head, context)
         stylesheet = context.stylesheet()
         style_html = (
@@ -402,7 +419,7 @@ class Page:
             '<meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f"<title>{escape(self.title)}</title>{head_html}{style_html}{script_html}"
-            f"</head><body>{body_html}</body></html>"
+            f"</head>{body_html}</html>"
         )
 
     def __html__(self) -> str:

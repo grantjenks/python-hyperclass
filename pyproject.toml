@@ -1,6 +1,6 @@
 [project]
 name = "hyperclass"
-version = "0.0.5"
+version = "0.1.0"
 description = "Build interactive web applications as Python class hierarchies."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,7 +29,15 @@ urls."Issue Tracker" = "https://github.com/grantjenks/python-hyperclass/issues"
 urls."Source Code" = "https://github.com/grantjenks/python-hyperclass"
 
 [project.optional-dependencies]
+flask = [
+    "Flask>=3.1",
+]
+django = [
+    "Django>=5.2",
+]
 dev = [
+    "Django>=5.2",
+    "Flask>=3.1",
     "pytest>=8.0",
     "nox>=2024.4.15",
 ]

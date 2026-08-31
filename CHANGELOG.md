@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0 — 2026-08-31
+
+- Split the zero-dependency server into the explicit `hyperclass.lite` host.
+- Keep top-level `App` and `hyperclass.wsgi` as backward-compatible aliases.
+- Add a native Flask host with native requests, responses, mounting, and URL
+  generation.
+- Add a native Django URL app with namespaces, method dispatch, URL reversing,
+  and htmx CSRF headers.
+- Resolve handler URLs lazily through the active host at render time.
+- Bind dataclasses from Lite values, Werkzeug `MultiDict`, or Django
+  `QueryDict` through one small protocol.
+- Run the complete bookmark browser contract against Lite, Flask, and Django.
+
 ## 0.0.5 — 2026-08-30
 
 - Carry component CSS with htmx fragment responses.

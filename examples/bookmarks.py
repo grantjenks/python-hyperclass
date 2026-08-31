@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 
 from hyperclass import (
     App,
-    Response,
     a,
     article,
     aside,
@@ -395,7 +394,7 @@ class bookmark_card(article):
             action_button(
                 "Mark unread" if bookmark.is_read else "Mark read",
                 hx=hx.patch(
-                    bookmarks.toggle,
+                    BookmarkRoutes.toggle,
                     bookmark_id=bookmark.id,
                     query=context,
                     target=id.bookmark_results,
@@ -405,7 +404,7 @@ class bookmark_card(article):
             action_button(
                 "Edit",
                 hx=hx.get(
-                    bookmarks.edit,
+                    BookmarkRoutes.edit,
                     bookmark_id=bookmark.id,
                     target=closest(bookmark_card),
                     swap=outer_morph,
@@ -414,7 +413,7 @@ class bookmark_card(article):
             delete_button(
                 "Delete",
                 hx=hx.delete(
-                    bookmarks.delete,
+                    BookmarkRoutes.delete,
                     bookmark_id=bookmark.id,
                     query=context,
                     target=id.bookmark_results,
@@ -553,7 +552,7 @@ def results_view(store: BookmarkStore, state: str = "all", query: str = ""):
                 search_field(
                     value=query,
                     hx=hx.get(
-                        bookmarks.listing,
+                        BookmarkRoutes.listing,
                         include=name.filter,
                         target=id.bookmark_results,
                         swap=outer_morph,
@@ -566,11 +565,11 @@ def results_view(store: BookmarkStore, state: str = "all", query: str = ""):
                 *(
                     filter_link(
                         state_name.title(),
-                        href=bookmarks.listing.url(
+                        href=BookmarkRoutes.listing.url(
                             query={**query_values, "filter": state_name}
                         ),
                         hx=hx.get(
-                            bookmarks.listing,
+                            BookmarkRoutes.listing,
                             query={**query_values, "filter": state_name},
                             target=id.bookmark_results,
                             swap=outer_morph,
@@ -603,7 +602,7 @@ def edit_view(bookmark: Bookmark, error: str = ""):
             action_button(
                 "Cancel",
                 hx=hx.get(
-                    bookmarks.show,
+                    BookmarkRoutes.show,
                     bookmark_id=bookmark.id,
                     target=closest(bookmark_editor),
                     swap=outer_morph,
@@ -616,9 +615,9 @@ def edit_view(bookmark: Bookmark, error: str = ""):
     return bookmark_editor(
         *children,
         method="post",
-        action=bookmarks.update.url(bookmark_id=bookmark.id),
+        action=BookmarkRoutes.update.url(bookmark_id=bookmark.id),
         hx=hx.put(
-            bookmarks.update,
+            BookmarkRoutes.update,
             bookmark_id=bookmark.id,
             target=closest(bookmark_editor),
             swap=outer_morph,
@@ -645,9 +644,9 @@ def form_view(error: str = ""):
     return bookmark_form(
         *children,
         method="post",
-        action=bookmarks.create,
+        action=BookmarkRoutes.create,
         hx=hx.post(
-            bookmarks.create, target=closest(bookmark_app), swap=outer_morph
+            BookmarkRoutes.create, target=closest(bookmark_app), swap=outer_morph
         ),
     )
 
@@ -661,14 +660,24 @@ def app_view(store: BookmarkStore, error: str = ""):
         ),
         form_view(error),
         results_view(store),
-        footer(small("Python · SQLite · WSGI · htmx 4")),
+        footer(small("Python · SQLite · htmx 4")),
     )
 
 
-class bookmarks(App):
-    def __init__(self, database: str | Path):
+def query_values(request):
+    """Return the native host's query multidict without wrapping the request."""
+
+    if hasattr(request, "query"):
+        return request.query
+    if hasattr(request, "args"):
+        return request.args
+    return request.GET
+
+
+class BookmarkRoutes:
+    def __init__(self, database: str | Path, **host_options):
         self.store = BookmarkStore(database)
-        super().__init__(title="Hyperclass Bookmarks")
+        super().__init__(title="Hyperclass Bookmarks", **host_options)
 
     @get("/")
     def index(self, request):
@@ -679,16 +688,17 @@ class bookmarks(App):
         try:
             self.store.add(form.url, form.title)
         except ValueError as error:
-            return Response(app_view(self.store, str(error)), 422)
+            return app_view(self.store, str(error)), 422
         return app_view(self.store)
 
     @get("/bookmarks")
     def listing(self, request):
-        state = request.query.get(name.filter, "all")
+        query = query_values(request)
+        state = query.get(name.filter, "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            request.query.get(name.q, ""),
+            query.get(name.q, ""),
         )
 
     @get("/bookmarks/<int:bookmark_id>")
@@ -696,14 +706,14 @@ class bookmarks(App):
         try:
             return bookmark_view(self.store.get(bookmark_id))
         except LookupError:
-            return Response("Bookmark not found", 404)
+            return "Bookmark not found", 404
 
     @get("/bookmarks/<int:bookmark_id>/edit")
     def edit(self, request, bookmark_id):
         try:
             return edit_view(self.store.get(bookmark_id))
         except LookupError:
-            return Response("Bookmark not found", 404)
+            return "Bookmark not found", 404
 
     @put("/bookmarks/<int:bookmark_id>")
     def update(self, request, bookmark_id, form: EditedBookmark):
@@ -715,22 +725,23 @@ class bookmarks(App):
             try:
                 bookmark = self.store.get(bookmark_id)
             except LookupError:
-                return Response("Bookmark not found", 404)
-            return Response(edit_view(bookmark, str(error)), 422)
+                return "Bookmark not found", 404
+            return edit_view(bookmark, str(error)), 422
         except LookupError:
-            return Response("Bookmark not found", 404)
+            return "Bookmark not found", 404
 
     @patch("/bookmarks/<int:bookmark_id>")
     def toggle(self, request, bookmark_id):
         try:
             self.store.toggle(bookmark_id)
         except LookupError:
-            return Response("Bookmark not found", 404)
-        state = request.query.get(name.filter, "all")
+            return "Bookmark not found", 404
+        query = query_values(request)
+        state = query.get(name.filter, "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            request.query.get(name.q, ""),
+            query.get(name.q, ""),
         )
 
     @delete_route("/bookmarks/<int:bookmark_id>")
@@ -738,13 +749,18 @@ class bookmarks(App):
         try:
             self.store.delete(bookmark_id)
         except LookupError:
-            return Response("Bookmark not found", 404)
-        state = request.query.get(name.filter, "all")
+            return "Bookmark not found", 404
+        query = query_values(request)
+        state = query.get(name.filter, "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            request.query.get(name.q, ""),
+            query.get(name.q, ""),
         )
+
+
+class bookmarks(BookmarkRoutes, App):
+    pass
 
 
 def create_app(database: str | Path) -> App:
