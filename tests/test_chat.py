@@ -92,3 +92,21 @@ def test_chat_accepts_an_injected_model_and_regenerates(tmp_path):
     assert captured["status"] == "200 OK"
     assert "Replied" in payload
     assert prompts == ["Again", "Again"]
+
+
+def test_superseded_generator_cannot_write_into_a_regeneration(tmp_path):
+    app = create_app(tmp_path / "chat.db", token_delay=0)
+    conversation = app.store.latest_or_create()
+    assistant = app.store.add_message(
+        conversation.id, "assistant", "old", "streaming", generation=1
+    )
+    app.store.stop(assistant.id)
+    restarted = app.store.restart(assistant.id)
+
+    assert restarted.generation == 2
+    assert app.store.update_generation(
+        assistant.id, generation=1, content="stale write", status="streaming"
+    ) is None
+    current = app.store.message(assistant.id)
+    assert current.content == ""
+    assert current.status == "streaming"
