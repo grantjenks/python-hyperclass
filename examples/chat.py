@@ -23,6 +23,7 @@ from hyperclass import (
     find,
     footer,
     form,
+    fragment,
     get,
     h1,
     header,
@@ -388,9 +389,11 @@ class message(article):
         yield message_body(
             message_meta(
                 span("You" if value.role == "user" else "Hyperclass Assistant"),
-                status_badge(value.status) if value.status != "complete" else None,
+                status_badge(value.status, id=id.message_status[value.id]),
             ),
-            message_copy(value.content or "Thinking…"),
+            message_copy(
+                value.content or "Thinking…", id=id.message_copy[value.id]
+            ),
             message_actions(*message_controls(value)) if value.role == "assistant" else None,
         )
 
@@ -450,6 +453,10 @@ class subtle_button(button):
         cursor="pointer",
     )
     hover = css(background="#f1f5f9")
+
+
+class action_label(span):
+    pass
 
 
 class composer_footer(footer):
@@ -521,30 +528,49 @@ class stream_sink(div):
 
 
 def message_controls(value: Message):
-    if value.status == "streaming":
-        return (
-            subtle_button(
-                "Stop generating",
-                aria_label="Stop generating",
-                hx=hx.post(
-                    ChatRoutes.stop,
-                    message_id=value.id,
-                    target=id.message[value.id],
-                    swap=outer_morph,
-                ),
-            ),
-        )
     return (
         subtle_button(
-            "Regenerate",
-            aria_label="Regenerate response",
-            hx=hx.post(
-                ChatRoutes.regenerate,
-                message_id=value.id,
-                target=id.stream_sink,
-                swap="none",
-                stream=True,
+            action_label(
+                "Stop generating" if value.status == "streaming" else "Regenerate response",
+                id=id.message_action[value.id],
             ),
+            hx=(
+                hx.post(
+                    ChatRoutes.generation,
+                    message_id=value.id,
+                    target=id.stream_sink,
+                    swap="none",
+                    stream=True,
+                )
+                | hx.config("sse.releaseOn:first")
+            ),
+        ),
+    )
+
+
+def message_update(value: Message):
+    """Update a message without replacing the button that owns its stream."""
+
+    return fragment(
+        partial(
+            message_copy(
+                value.content or "Thinking…", id=id.message_copy[value.id]
+            ),
+            hx_target=id.message_copy[value.id].selector,
+            hx_swap=outer_morph,
+        ),
+        partial(
+            status_badge(value.status, id=id.message_status[value.id]),
+            hx_target=id.message_status[value.id].selector,
+            hx_swap=outer_morph,
+        ),
+        partial(
+            action_label(
+                "Stop generating" if value.status == "streaming" else "Regenerate response",
+                id=id.message_action[value.id],
+            ),
+            hx_target=id.message_action[value.id].selector,
+            hx_swap=outer_morph,
         ),
     )
 
@@ -682,7 +708,24 @@ class ChatRoutes:
             message = self.store.restart(message_id)
         except LookupError:
             return "Message not found", 404
-        return stream(self._events(prompt, message))
+        return stream(self._events(prompt, message, in_place=True))
+
+    @post("/messages/<int:message_id>/generation")
+    def generation(self, request, message_id):
+        try:
+            message = self.store.message(message_id)
+            if message.status == "streaming":
+                stopped = self.store.stop(message_id)
+                return partial(
+                    message_view(stopped),
+                    hx_target=id.message[message_id].selector,
+                    hx_swap=outer_morph,
+                )
+            prompt = self.store.preceding_prompt(message_id)
+            restarted = self.store.restart(message_id)
+        except LookupError:
+            return "Message not found", 404
+        return stream(self._events(prompt, restarted, in_place=True))
 
     def _events(
         self,
@@ -690,6 +733,7 @@ class ChatRoutes:
         assistant: Message,
         *,
         initial: tuple[Message, Message] | None = None,
+        in_place: bool = False,
     ) -> Iterator:
         if initial:
             yield partial(
@@ -713,7 +757,7 @@ class ChatRoutes:
                 )
                 if current is None:
                     return
-                yield partial(
+                yield message_update(current) if in_place else partial(
                     message_view(current),
                     hx_target=id.message[assistant.id].selector,
                     hx_swap=outer_morph,
@@ -725,7 +769,7 @@ class ChatRoutes:
             )
             if current is None:
                 return
-            yield partial(
+            yield message_update(current) if in_place else partial(
                 message_view(current),
                 hx_target=id.message[assistant.id].selector,
                 hx_swap=outer_morph,
@@ -742,7 +786,7 @@ class ChatRoutes:
             )
             if current is None:
                 return
-            yield partial(
+            yield message_update(current) if in_place else partial(
                 message_view(current),
                 hx_target=id.message[assistant.id].selector,
                 hx_swap=outer_morph,
