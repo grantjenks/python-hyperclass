@@ -694,11 +694,11 @@ class BookmarkRoutes:
     @get("/bookmarks")
     def listing(self, request):
         query = query_values(request)
-        state = query.get(name.filter, "all")
+        state = query.get(str(name.filter), "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            query.get(name.q, ""),
+            query.get(str(name.q), ""),
         )
 
     @get("/bookmarks/<int:bookmark_id>")
@@ -737,11 +737,11 @@ class BookmarkRoutes:
         except LookupError:
             return "Bookmark not found", 404
         query = query_values(request)
-        state = query.get(name.filter, "all")
+        state = query.get(str(name.filter), "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            query.get(name.q, ""),
+            query.get(str(name.q), ""),
         )
 
     @delete_route("/bookmarks/<int:bookmark_id>")
@@ -751,11 +751,11 @@ class BookmarkRoutes:
         except LookupError:
             return "Bookmark not found", 404
         query = query_values(request)
-        state = query.get(name.filter, "all")
+        state = query.get(str(name.filter), "all")
         return results_view(
             self.store,
             state if state in {"all", "unread", "read"} else "all",
-            query.get(name.q, ""),
+            query.get(str(name.q), ""),
         )
 
 

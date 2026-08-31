@@ -63,7 +63,7 @@ from .lite import (
 )
 from .wsgi import delete as delete_route
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 hidden = "hidden"
 submit = "submit"

@@ -391,8 +391,9 @@ urlpatterns = [
 Handlers receive native `HttpRequest` objects and may return native
 `HttpResponse` objects. Routes sharing a path are dispatched by HTTP method,
 and route references use Django `reverse()`, including the mount and namespace.
-Full Hyperclass pages inherit an htmx `X-CSRFToken` header and request a Django
-CSRF cookie, so unsafe htmx requests work with `CsrfViewMiddleware` enabled.
+Full Hyperclass pages emit htmx 4's explicit `hx-headers:inherited` modifier
+with an `X-CSRFToken` header and request a Django CSRF cookie, so unsafe htmx
+requests work with `CsrfViewMiddleware` enabled.
 
 ### htmx 4
 

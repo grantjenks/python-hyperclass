@@ -143,7 +143,7 @@ class App:
                 is_htmx=request.headers.get("HX-Request", "").lower() == "true",
                 url_resolver=self.resolve_url,
                 body_attributes={
-                    "hx_headers": json.dumps(
+                    "hx-headers:inherited": json.dumps(
                         {"X-CSRFToken": get_token(request)}, separators=(",", ":")
                     )
                 },

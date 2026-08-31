@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 — 2026-08-31
+
+- Read portable query keys correctly from native Flask and Django multidicts.
+- Mark the generated Django CSRF header as inherited for htmx 4.
+
 ## 0.1.0 — 2026-08-31
 
 - Split the zero-dependency server into the explicit `hyperclass.lite` host.

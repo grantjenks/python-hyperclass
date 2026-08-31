@@ -66,7 +66,7 @@ def test_django_reverses_namespaced_routes_and_supplies_csrf():
     text = response.content.decode()
     assert 'action="/mounted/items/7"' in text
     assert 'hx-post="/mounted/items/7"' in text
-    assert "hx-headers=" in text
+    assert "hx-headers:inherited=" in text
     assert "X-CSRFToken" in unescape(text)
     assert "csrftoken" in response.cookies
 

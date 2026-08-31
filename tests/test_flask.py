@@ -4,6 +4,7 @@ from flask import Request, Response
 
 from hyperclass import div, form, get, hx, post, render
 from hyperclass.flask import App
+from examples.bookmarks import BookmarkRoutes
 
 
 @dataclass
@@ -68,3 +69,17 @@ def test_flask_instance_decorators_return_route_references():
 
     assert render(form(action=index)) == '<form action="/"></form>'
     assert app.test_client().get("/").text.endswith("<div>dynamic</div></body></html>")
+
+
+def test_flask_bookmark_routes_read_native_query_keys(tmp_path):
+    class Bookmarks(BookmarkRoutes, App):
+        pass
+
+    app = Bookmarks(tmp_path / "flask-query.db")
+    app.store.add("https://python.org", "Python")
+    response = app.test_client().get(
+        "/bookmarks?q=missing&filter=all",
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert "No bookmarks matching &quot;missing&quot;." in response.text
